@@ -4,9 +4,9 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const http = require("http");
-const { Server } = require('socket.io');
+const { Server } = require("socket.io");
 const { clerkMiddleware } = require("@clerk/express");
-const carController = require('./controllers/car'); // Adjust path
+const carController = require("./controllers/car"); // Adjust path
 
 // Connect to Database
 require("./config/connect");
@@ -16,18 +16,30 @@ const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
-    cors: {
-        origin: process.env.FRONTEND_URL,
-        methods: ['GET', 'POST'],
-    },
+  cors: {
+    origin: process.env.FRONTEND_URL,
+    methods: ["GET", "POST"],
+  },
 });
 
-// Configure Middleware
-app.use(cors({
-  origin: 'http://localhost:3000', // Your Next.js frontend URL
-  methods: ["GET", "POST", "PUT", "DELETE" ,"PATCH"],
-  credentials: true,
-}));
+// Configure Middlewareconst cors = require('cors');
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://ojest-sell.vercel.app",
+];
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 app.use(
@@ -44,13 +56,12 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 // Set Up Routes
 app.use("/api/users", require("./routes/user"));
 app.use("/api/cars", require("./routes/car"));
-app.use('/api/chat', require('./routes/chat'));
+app.use("/api/chat", require("./routes/chat"));
 
 // Pass io to car controller
 carController.setIo(io);
 // Socket.IO Logic
-require('./socket/socket')(io);
-
+require("./socket/socket")(io);
 
 // Handle unknown routes
 app.use((req, res) => {
@@ -62,7 +73,6 @@ app.use((err, req, res, next) => {
   console.error("Global Error:", err.stack);
   res.status(500).json({ message: "Something went wrong!" });
 });
-
 
 // Start the Server
 const PORT = process.env.PORT || 5000;
