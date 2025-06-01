@@ -75,7 +75,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start the Server
-const PORT = process.env.PORT || 5000;
+const PORT = 8000;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`API Documentation available at http://localhost:${PORT}/api`);
