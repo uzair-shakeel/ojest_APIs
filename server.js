@@ -25,7 +25,7 @@ const io = new Server(server, {
 // Configure Middlewareconst cors = require('cors');
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://ojest-sell.vercel.app",
+  "https://ojest-sell-opal.vercel.app",
 ];
 app.use(
   cors({
