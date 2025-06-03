@@ -3,7 +3,8 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
-const http = require("http");
+const https = require("https"); // Changed from http
+const fs = require("fs"); // For SSL files
 const { Server } = require("socket.io");
 const { clerkMiddleware } = require("@clerk/express");
 const carController = require("./controllers/car"); // Adjust path
@@ -13,20 +14,38 @@ require("./config/connect");
 
 // Initialize Express App
 const app = express();
-const server = http.createServer(app);
 
-const io = new Server(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL,
-    methods: ["GET", "POST"],
-  },
-});
+// Load SSL certificate files
+const sslOptions = {
+  cert: fs.readFileSync("/etc/ssl/certs/ojest.pl.crt"),
+  key: fs.readFileSync("/etc/ssl/private/ojest.pl.key"),
+  ca: fs.readFileSync("/etc/ssl/certs/ojest.pl.ca-bundle.pem"),
+};
 
-// Configure Middlewareconst cors = require('cors');
+// Create HTTPS server
+const server = https.createServer(sslOptions, app);
+
+// Configure Socket.IO with CORS for all frontend domains
 const allowedOrigins = [
   "http://localhost:3000",
   "https://ojest-sell-opal.vercel.app",
+  "https://ojest.pl", // Replace with your third frontend domain
 ];
+const io = new Server(server, {
+  cors: {
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
+
+// Configure Middleware
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -60,8 +79,18 @@ app.use("/api/chat", require("./routes/chat"));
 
 // Pass io to car controller
 carController.setIo(io);
+
 // Socket.IO Logic
 require("./socket/socket")(io);
+
+// Redirect HTTP to HTTPS
+const http = require("http");
+http
+  .createServer((req, res) => {
+    res.writeHead(301, { Location: `https://${req.headers.host}${req.url}` });
+    res.end();
+  })
+  .listen(80);
 
 // Handle unknown routes
 app.use((req, res) => {
@@ -75,8 +104,8 @@ app.use((err, req, res, next) => {
 });
 
 // Start the Server
-const PORT = 5000;
+const PORT = 443; // Standard HTTPS port
 server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`API Documentation available at http://localhost:${PORT}/api`);
+  console.log(`Server is running on https://ojest.pl:${PORT}`);
+  console.log(`API Documentation available at https://ojest.pl:${PORT}/api`);
 });
