@@ -26,7 +26,9 @@ const io = new Server(server, {
 const allowedOrigins = [
   "http://localhost:3000",
   "https://ojest-sell-opal.vercel.app",
+  "https://ojest-sell-two.vercel.app",
 ];
+
 app.use(
   cors({
     origin: (origin, callback) => {
