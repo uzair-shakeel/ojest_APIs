@@ -146,7 +146,7 @@ exports.updateProfile = async (req, res) => {
     if (phoneNumbers) updateData.phoneNumbers = phoneNumbers;
     if (description) updateData.description = description;
     if (companyName) updateData.companyName = companyName;
-    if (req.file) updateData.image = req.file.path;
+    if (req.file) updateData.image = req.file.cloudinaryUrl;
 
     // Validate location
     if (location) {
@@ -306,7 +306,7 @@ exports.updateProfileCustom = async (req, res) => {
     if (description) updateData.description = description;
     if (socialMedia) updateData.socialMedia = socialMedia;
     if (sellerType) updateData.sellerType = sellerType;
-    if (req.file) updateData.image = req.file.path;
+    if (req.file) updateData.image = req.file.cloudinaryUrl;
 
     updateData.updatedAt = new Date();
 

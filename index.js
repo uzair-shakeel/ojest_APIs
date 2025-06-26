@@ -53,7 +53,7 @@ app.use(
 app.use(express.urlencoded({ extended: true }));
 
 // Serve static files from the "uploads" directory
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Set Up Routes
 app.use("/api/users", require("./routes/user"));

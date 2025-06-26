@@ -1,38 +1,27 @@
 // backend/middlewares/uploadMiddleware.js
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const multer = require("multer");
+const cloudinary = require("../config/connect").cloudinary;
+const streamifier = require("streamifier");
 
-// Ensure the 'uploads' directory exists
-const uploadDir = 'uploads/';
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
-}
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
-// Set storage engine
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}${path.extname(file.originalname)}`);
-  },
-});
+const uploadToCloudinary = (req, res, next) => {
+  if (!req.file) return next();
 
-// Check file type
-const fileFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith('image')) {
-    cb(null, true);
-  } else {
-    cb(new Error('Only image files are allowed'), false);
-  }
+  const stream = cloudinary.uploader.upload_stream(
+    { folder: "ojest_uploads" },
+    (error, result) => {
+      if (error) {
+        return res
+          .status(500)
+          .json({ error: "Cloudinary upload failed", details: error });
+      }
+      req.file.cloudinaryUrl = result.secure_url;
+      next();
+    }
+  );
+  streamifier.createReadStream(req.file.buffer).pipe(stream);
 };
 
-// Initialize upload
-const upload = multer({
-  storage,
-  limits: { fileSize: 5000000 }, // 5MB limit
-  fileFilter,
-});
-
-module.exports = upload;
+module.exports = { upload, uploadToCloudinary };

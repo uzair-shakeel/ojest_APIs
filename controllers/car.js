@@ -69,7 +69,7 @@ exports.addCar = async (req, res) => {
         .json({ message: "Missing required financial information" });
     }
 
-    const images = req.files.map((file) => file.path);
+    const images = req.files.map((file) => file.cloudinaryUrl);
 
     // Process financialInfo to handle possible comma-separated strings
     const processedFinancialInfo = {
@@ -195,7 +195,7 @@ exports.updateCar = async (req, res) => {
 
     const images =
       req.files && req.files.length > 0
-        ? req.files.map((file) => file.path)
+        ? req.files.map((file) => file.cloudinaryUrl)
         : car.images;
 
     let coordinates = car.location.coordinates;
@@ -322,15 +322,8 @@ exports.deleteCar = async (req, res) => {
       return res.status(403).json({ message: "Account is blocked" });
     }
 
-    // Delete associated image files
-    car.images.forEach((imagePath) => {
-      fs.unlink(imagePath, (err) => {
-        if (err) console.error(`Failed to delete image ${imagePath}:`, err);
-      });
-    });
-
     await Car.findByIdAndDelete(carId);
-    res.json({ message: "Car and associated images deleted successfully" });
+    res.json({ message: "Car deleted successfully" });
   } catch (error) {
     console.error("Delete Car Error:", error);
     res.status(500).json({ message: "Server error", error: error.message });
