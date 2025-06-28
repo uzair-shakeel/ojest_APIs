@@ -28,6 +28,7 @@ router.post(
   uploadToCloudinary,
   carController.addCar
 ); // Max 10 images
+
 router.get("/my-cars/:userId", clerkAuth, carController.getCarsByUserId);
 router.put(
   "/:carId",

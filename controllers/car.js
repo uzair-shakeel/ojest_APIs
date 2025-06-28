@@ -11,7 +11,10 @@ exports.setIo = (socketIo) => {
 // Post a new car (Normal user)
 exports.addCar = async (req, res) => {
   try {
+    console.log("req.body:", req.body);
+    console.log("req.files:", req.files);
     const { userId } = req.auth;
+    console.log("userId:", userId);
     const user = await User.findOne({ clerkUserId: userId });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -47,6 +50,37 @@ exports.addCar = async (req, res) => {
       financialInfo,
     } = req.body;
 
+    console.log("title:", title);
+    console.log("description:", description);
+    console.log("make:", make);
+    console.log("model:", model);
+    console.log("type:", type);
+    console.log("condition:", condition);
+    console.log("financialInfo (raw):", financialInfo);
+    let fi;
+    try {
+      fi =
+        typeof financialInfo === "string"
+          ? JSON.parse(financialInfo)
+          : financialInfo;
+    } catch (e) {
+      fi = financialInfo;
+    }
+    console.log("financialInfo (parsed):", fi);
+    if (!title) console.log("Missing: title");
+    if (!description) console.log("Missing: description");
+    if (!make) console.log("Missing: make");
+    if (!model) console.log("Missing: model");
+    if (!type) console.log("Missing: type");
+    if (!condition) console.log("Missing: condition");
+    if (!financialInfo) console.log("Missing: financialInfo");
+    if (fi) {
+      if (!fi.sellOptions) console.log("Missing: financialInfo.sellOptions");
+      if (!fi.invoiceOptions)
+        console.log("Missing: financialInfo.invoiceOptions");
+      if (!fi.priceNetto) console.log("Missing: financialInfo.priceNetto");
+    }
+
     // Validate required fields
     if (
       !title ||
@@ -73,18 +107,18 @@ exports.addCar = async (req, res) => {
 
     // Process financialInfo to handle possible comma-separated strings
     const processedFinancialInfo = {
-      ...financialInfo,
-      sellOptions: Array.isArray(financialInfo.sellOptions)
-        ? financialInfo.sellOptions
-        : String(financialInfo.sellOptions)
+      ...fi,
+      sellOptions: Array.isArray(fi.sellOptions)
+        ? fi.sellOptions
+        : String(fi.sellOptions)
             .split(",")
             .map((option) => option.trim()),
-      invoiceOptions: Array.isArray(financialInfo.invoiceOptions)
-        ? financialInfo.invoiceOptions
-        : String(financialInfo.invoiceOptions)
+      invoiceOptions: Array.isArray(fi.invoiceOptions)
+        ? fi.invoiceOptions
+        : String(fi.invoiceOptions)
             .split(",")
             .map((option) => option.trim()),
-      priceNetto: parseFloat(financialInfo.priceNetto),
+      priceNetto: parseFloat(fi.priceNetto),
     };
 
     const car = new Car({
@@ -343,6 +377,7 @@ exports.getAllCars = async (req, res) => {
 // Get a single car by ID (Public)
 exports.getCarById = async (req, res) => {
   try {
+    console.log("req.params:", req.params);
     const { carId } = req.params;
     const car = await Car.findById(carId);
     if (!car) {

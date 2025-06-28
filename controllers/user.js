@@ -35,13 +35,25 @@ exports.syncUser = async (req, res) => {
       return res.status(400).json({ error: "Email not found for user" });
     }
 
-    // Create new user in MongoDB
+    // Create new user in MongoDB with fixed fields
     const newUser = new User({
       clerkUserId: userId,
       email,
       firstName: clerkUser.firstName || "",
       lastName: clerkUser.lastName || "",
       sellerType: "private", // Default as per your schema
+      // Ensure any fields that might have unique constraints are properly set
+      image: clerkUser.profileImageUrl || "",
+      phoneNumbers: [],
+      socialMedia: {
+        instagram: "",
+        facebook: "",
+        twitter: "",
+        website: "",
+        linkedin: "",
+      },
+      description: "",
+      companyName: "",
     });
 
     await newUser.save();
@@ -51,8 +63,26 @@ exports.syncUser = async (req, res) => {
       .status(201)
       .json({ message: "User synced successfully", user: newUser });
   } catch (error) {
-    console.error("Error syncing user:", error.message);
-    res.status(500).json({ error: "Failed to sync user" });
+    console.error("Error syncing user:", error);
+
+    // Check if it's a duplicate key error
+    if (error.code === 11000) {
+      // Get the field that caused the duplicate key error
+      const keyPattern = error.keyPattern;
+      const keyValue = error.keyValue;
+      const fieldName = Object.keys(keyPattern)[0];
+
+      return res.status(400).json({
+        error: `Duplicate key error on field '${fieldName}' with value '${JSON.stringify(
+          keyValue[fieldName]
+        )}'`,
+        details: error.message,
+      });
+    }
+
+    res
+      .status(500)
+      .json({ error: "Failed to sync user", details: error.message });
   }
 };
 // Get all users (Admin route)
@@ -116,7 +146,14 @@ exports.getUserById = async (req, res) => {
 // Update user profile (Normal user)
 exports.updateProfile = async (req, res) => {
   try {
+    console.log("Update Profile Request Body:", req.body);
+    console.log("Update Profile Auth:", req.auth);
+    
     const { userId } = req.auth;
+    if (!userId) {
+      return res.status(401).json({ message: "No user ID provided in auth" });
+    }
+    
     const user = await User.findOne({ clerkUserId: userId });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -126,6 +163,8 @@ exports.updateProfile = async (req, res) => {
     }
 
     const {
+      firstName,
+      lastName,
       sellerType,
       socialMedia,
       phoneNumbers,
@@ -134,6 +173,17 @@ exports.updateProfile = async (req, res) => {
       companyName,
     } = req.body;
 
+    console.log("Extracted data:", {
+      firstName,
+      lastName,
+      sellerType,
+      socialMedia: typeof socialMedia === 'string' ? 'JSON string' : socialMedia,
+      phoneNumbers: typeof phoneNumbers === 'string' ? 'JSON string' : phoneNumbers,
+      location: typeof location === 'string' ? 'JSON string' : location,
+      description,
+      companyName
+    });
+
     if (sellerType && !["private", "company"].includes(sellerType)) {
       return res
         .status(400)
@@ -141,45 +191,89 @@ exports.updateProfile = async (req, res) => {
     }
 
     const updateData = {};
+    if (firstName) updateData.firstName = firstName;
+    if (lastName) updateData.lastName = lastName;
     if (sellerType) updateData.sellerType = sellerType;
-    if (socialMedia) updateData.socialMedia = socialMedia;
-    if (phoneNumbers) updateData.phoneNumbers = phoneNumbers;
+    
+    // Handle socialMedia
+    if (socialMedia) {
+      try {
+        updateData.socialMedia = typeof socialMedia === 'string' 
+          ? JSON.parse(socialMedia) 
+          : socialMedia;
+      } catch (err) {
+        console.error("Error parsing socialMedia:", err);
+        return res.status(400).json({ error: "Invalid socialMedia format" });
+      }
+    }
+    
+    // Handle phoneNumbers
+    if (phoneNumbers) {
+      try {
+        // If phoneNumbers is a string, parse it
+        const parsedPhoneNumbers = typeof phoneNumbers === 'string'
+          ? JSON.parse(phoneNumbers)
+          : phoneNumbers;
+        
+        // Ensure it's an array
+        if (Array.isArray(parsedPhoneNumbers)) {
+          updateData.phoneNumbers = parsedPhoneNumbers;
+        } else {
+          console.error("phoneNumbers is not an array:", parsedPhoneNumbers);
+          return res.status(400).json({ error: "phoneNumbers must be an array" });
+        }
+      } catch (err) {
+        console.error("Error parsing phoneNumbers:", err);
+        return res.status(400).json({ error: "Invalid phoneNumbers format" });
+      }
+    }
+    
     if (description) updateData.description = description;
     if (companyName) updateData.companyName = companyName;
     if (req.file) updateData.image = req.file.cloudinaryUrl;
 
     // Validate location
     if (location) {
-      const parsedLocation =
-        typeof location === "string" ? JSON.parse(location) : location;
-      if (
-        parsedLocation.type === "Point" &&
-        Array.isArray(parsedLocation.coordinates) &&
-        parsedLocation.coordinates.length === 2 &&
-        typeof parsedLocation.coordinates[1] === "number" &&
-        typeof parsedLocation.coordinates[0] === "number" &&
-        !isNaN(parsedLocation.coordinates[1]) &&
-        !isNaN(parsedLocation.coordinates[0])
-      ) {
-        updateData.location = {
-          type: "Point",
-          coordinates: parsedLocation.coordinates,
-        };
-      } else {
-        return res.status(400).json({
-          error:
-            'Invalid location. Must be an object { type: "Point", coordinates: [longitude, latitude] }.',
-        });
+      try {
+        const parsedLocation =
+          typeof location === "string" ? JSON.parse(location) : location;
+        if (
+          parsedLocation.type === "Point" &&
+          Array.isArray(parsedLocation.coordinates) &&
+          parsedLocation.coordinates.length === 2 &&
+          typeof parsedLocation.coordinates[1] === "number" &&
+          typeof parsedLocation.coordinates[0] === "number" &&
+          !isNaN(parsedLocation.coordinates[1]) &&
+          !isNaN(parsedLocation.coordinates[0])
+        ) {
+          updateData.location = {
+            type: "Point",
+            coordinates: parsedLocation.coordinates,
+          };
+        } else {
+          console.error("Invalid location format:", parsedLocation);
+          return res.status(400).json({
+            error:
+              'Invalid location. Must be an object { type: "Point", coordinates: [longitude, latitude] }.',
+          });
+        }
+      } catch (err) {
+        console.error("Error parsing location:", err);
+        return res.status(400).json({ error: "Invalid location format" });
       }
     }
 
     updateData.updatedAt = new Date();
+    
+    console.log("Final update data:", updateData);
 
     const updatedUser = await User.findOneAndUpdate(
       { clerkUserId: userId },
       { $set: updateData },
       { new: true }
     );
+    
+    console.log("Updated user:", updatedUser);
 
     // Update Clerk's public_metadata
     const metadata = {

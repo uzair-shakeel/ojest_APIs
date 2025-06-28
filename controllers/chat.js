@@ -6,6 +6,7 @@ exports.createChat = async (req, res) => {
   const buyerId = req.userId; // From verifyUser middleware
 
   try {
+    console.log("[DEBUG] Incoming createChat body:", req.body);
     const user = await User.findOne({ clerkUserId: buyerId });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -16,11 +17,26 @@ exports.createChat = async (req, res) => {
 
     const car = await Car.findById(carId);
     if (!car) {
+      console.error(`[DEBUG] Car not found for carId: ${carId}`);
       return res.status(404).json({ message: "Car not found" });
     }
-    if (car.createdBy !== ownerId) {
-      return res.status(400).json({ message: "Invalid owner for this car" });
+    const carCreatedByStr = String(car.createdBy);
+    const ownerIdStr = String(ownerId);
+    console.log(
+      `[DEBUG] carId: ${carId}, ownerId: ${ownerIdStr}, car.createdBy: ${carCreatedByStr}`
+    );
+    if (carCreatedByStr !== ownerIdStr) {
+      console.error(
+        `[DEBUG] Owner mismatch: car.createdBy (${carCreatedByStr}) !== ownerId (${ownerIdStr})`
+      );
+      return res
+        .status(400)
+        .json({
+          message: `Invalid owner for this car. car.createdBy=${carCreatedByStr}, ownerId=${ownerIdStr}`,
+        });
     }
+    console.log("[DEBUG] Full car object:", car);
+    console.log("[DEBUG] car.createdBy:", car.createdBy, "ownerId:", ownerId);
 
     let chat = await Chat.findOne({
       carId,
