@@ -9,7 +9,7 @@ const { clerkMiddleware } = require("@clerk/express");
 const carController = require("./controllers/car"); // Adjust path
 
 // Connect to Database
-require("./config/connect");
+const { connectDB } = require("./config/connect");
 
 // Initialize Express App
 const app = express();
@@ -77,8 +77,24 @@ app.use((err, req, res, next) => {
 });
 
 // Start the Server
-const PORT = 5000;
-server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`API Documentation available at http://localhost:${PORT}/api`);
-});
+const PORT = process.env.PORT || 5000;
+
+// Start server only after MongoDB connection is established
+const startServer = async () => {
+  try {
+    // Wait for MongoDB connection
+    await connectDB;
+
+    server.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+      console.log(
+        `API Documentation available at http://localhost:${PORT}/api`
+      );
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+};
+
+startServer();
