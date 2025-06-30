@@ -148,12 +148,12 @@ exports.updateProfile = async (req, res) => {
   try {
     console.log("Update Profile Request Body:", req.body);
     console.log("Update Profile Auth:", req.auth);
-    
+
     const { userId } = req.auth;
     if (!userId) {
       return res.status(401).json({ message: "No user ID provided in auth" });
     }
-    
+
     const user = await User.findOne({ clerkUserId: userId });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -177,11 +177,13 @@ exports.updateProfile = async (req, res) => {
       firstName,
       lastName,
       sellerType,
-      socialMedia: typeof socialMedia === 'string' ? 'JSON string' : socialMedia,
-      phoneNumbers: typeof phoneNumbers === 'string' ? 'JSON string' : phoneNumbers,
-      location: typeof location === 'string' ? 'JSON string' : location,
+      socialMedia:
+        typeof socialMedia === "string" ? "JSON string" : socialMedia,
+      phoneNumbers:
+        typeof phoneNumbers === "string" ? "JSON string" : phoneNumbers,
+      location: typeof location === "string" ? "JSON string" : location,
       description,
-      companyName
+      companyName,
     });
 
     if (sellerType && !["private", "company"].includes(sellerType)) {
@@ -194,40 +196,44 @@ exports.updateProfile = async (req, res) => {
     if (firstName) updateData.firstName = firstName;
     if (lastName) updateData.lastName = lastName;
     if (sellerType) updateData.sellerType = sellerType;
-    
+
     // Handle socialMedia
     if (socialMedia) {
       try {
-        updateData.socialMedia = typeof socialMedia === 'string' 
-          ? JSON.parse(socialMedia) 
-          : socialMedia;
+        updateData.socialMedia =
+          typeof socialMedia === "string"
+            ? JSON.parse(socialMedia)
+            : socialMedia;
       } catch (err) {
         console.error("Error parsing socialMedia:", err);
         return res.status(400).json({ error: "Invalid socialMedia format" });
       }
     }
-    
+
     // Handle phoneNumbers
     if (phoneNumbers) {
       try {
         // If phoneNumbers is a string, parse it
-        const parsedPhoneNumbers = typeof phoneNumbers === 'string'
-          ? JSON.parse(phoneNumbers)
-          : phoneNumbers;
-        
+        const parsedPhoneNumbers =
+          typeof phoneNumbers === "string"
+            ? JSON.parse(phoneNumbers)
+            : phoneNumbers;
+
         // Ensure it's an array
         if (Array.isArray(parsedPhoneNumbers)) {
           updateData.phoneNumbers = parsedPhoneNumbers;
         } else {
           console.error("phoneNumbers is not an array:", parsedPhoneNumbers);
-          return res.status(400).json({ error: "phoneNumbers must be an array" });
+          return res
+            .status(400)
+            .json({ error: "phoneNumbers must be an array" });
         }
       } catch (err) {
         console.error("Error parsing phoneNumbers:", err);
         return res.status(400).json({ error: "Invalid phoneNumbers format" });
       }
     }
-    
+
     if (description) updateData.description = description;
     if (companyName) updateData.companyName = companyName;
     if (req.file) updateData.image = req.file.cloudinaryUrl;
@@ -264,7 +270,7 @@ exports.updateProfile = async (req, res) => {
     }
 
     updateData.updatedAt = new Date();
-    
+
     console.log("Final update data:", updateData);
 
     const updatedUser = await User.findOneAndUpdate(
@@ -272,7 +278,7 @@ exports.updateProfile = async (req, res) => {
       { $set: updateData },
       { new: true }
     );
-    
+
     console.log("Updated user:", updatedUser);
 
     // Update Clerk's public_metadata
