@@ -311,16 +311,149 @@ const carSchema = new mongoose.Schema(
   }
 );
 
+// Buyer Request Schema
+const buyerRequestSchema = new mongoose.Schema(
+  {
+    buyerId: {
+      type: String,
+      required: true,
+      ref: "User",
+    },
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    make: {
+      type: String,
+      trim: true,
+    },
+    model: {
+      type: String,
+      trim: true,
+    },
+    yearFrom: {
+      type: Number,
+      trim: true,
+    },
+    yearTo: {
+      type: Number,
+      trim: true,
+    },
+    budgetMin: {
+      type: Number,
+      trim: true,
+    },
+    budgetMax: {
+      type: Number,
+      required: true,
+      trim: true,
+    },
+    preferredCondition: {
+      type: String,
+      enum: ["New", "Used", "Any"],
+      default: "Any",
+    },
+    location: {
+      type: { type: String, default: "Point" },
+      coordinates: { type: [Number], default: [21.01178, 52.22977] },
+    },
+    preferredFeatures: {
+      type: [String],
+      default: [],
+    },
+    status: {
+      type: String,
+      enum: ["Active", "Fulfilled", "Expired", "Cancelled"],
+      default: "Active",
+    },
+    expiryDate: {
+      type: Date,
+      default: () => new Date(+new Date() + 30 * 24 * 60 * 60 * 1000), // 30 days from creation
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+// Seller Offer Schema
+const sellerOfferSchema = new mongoose.Schema(
+  {
+    requestId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BuyerRequest",
+      required: true,
+    },
+    sellerId: {
+      type: String,
+      required: true,
+      ref: "User",
+    },
+    carId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Car",
+    },
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    price: {
+      type: Number,
+      required: true,
+    },
+    images: {
+      type: [String],
+      default: [],
+    },
+    status: {
+      type: String,
+      enum: ["Pending", "Accepted", "Rejected", "Expired"],
+      default: "Pending",
+    },
+    expiryDate: {
+      type: Date,
+      default: () => new Date(+new Date() + 7 * 24 * 60 * 60 * 1000), // 7 days from creation
+    },
+    isCustomOffer: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
 // Create models only if they haven't been compiled yet
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 const Message =
   mongoose.models.Message || mongoose.model("Message", messageSchema);
 const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
 const Car = mongoose.models.Car || mongoose.model("Car", carSchema);
+const BuyerRequest =
+  mongoose.models.BuyerRequest ||
+  mongoose.model("BuyerRequest", buyerRequestSchema);
+const SellerOffer =
+  mongoose.models.SellerOffer ||
+  mongoose.model("SellerOffer", sellerOfferSchema);
 
 module.exports = {
   User,
   Message,
   Chat,
   Car,
+  BuyerRequest,
+  SellerOffer,
 };

@@ -3,10 +3,17 @@ const { Chat, Message, User, Car } = require("../models");
 // Create a new chat
 exports.createChat = async (req, res) => {
   const { carId, ownerId } = req.body;
-  const buyerId = req.userId; // From verifyUser middleware
+  const buyerId = req.auth?.userId; // From clerkAuth middleware
 
   try {
     console.log("[DEBUG] Incoming createChat body:", req.body);
+    console.log("[DEBUG] Auth object:", req.auth);
+    console.log("[DEBUG] buyerId:", buyerId);
+
+    if (!buyerId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
     const user = await User.findOne({ clerkUserId: buyerId });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -29,11 +36,9 @@ exports.createChat = async (req, res) => {
       console.error(
         `[DEBUG] Owner mismatch: car.createdBy (${carCreatedByStr}) !== ownerId (${ownerIdStr})`
       );
-      return res
-        .status(400)
-        .json({
-          message: `Invalid owner for this car. car.createdBy=${carCreatedByStr}, ownerId=${ownerIdStr}`,
-        });
+      return res.status(400).json({
+        message: `Invalid owner for this car. car.createdBy=${carCreatedByStr}, ownerId=${ownerIdStr}`,
+      });
     }
     console.log("[DEBUG] Full car object:", car);
     console.log("[DEBUG] car.createdBy:", car.createdBy, "ownerId:", ownerId);
@@ -66,9 +71,16 @@ exports.createChat = async (req, res) => {
 
 // Get all chats for a user
 exports.getUserChats = async (req, res) => {
-  const userId = req.userId;
+  const userId = req.auth?.userId;
 
   try {
+    console.log("[DEBUG] getUserChats - Auth object:", req.auth);
+    console.log("[DEBUG] getUserChats - userId:", userId);
+
+    if (!userId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
     const user = await User.findOne({ clerkUserId: userId });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -147,9 +159,16 @@ exports.getUserChats = async (req, res) => {
 // Get messages for a chat
 exports.getChatMessages = async (req, res) => {
   const { chatId } = req.params;
-  const userId = req.userId;
+  const userId = req.auth?.userId;
 
   try {
+    console.log("[DEBUG] getChatMessages - Auth object:", req.auth);
+    console.log("[DEBUG] getChatMessages - userId:", userId);
+
+    if (!userId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
     const chat = await Chat.findById(chatId).populate("carId");
     if (!chat) {
       return res.status(404).json({ message: "Chat not found" });
