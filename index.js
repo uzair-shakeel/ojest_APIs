@@ -30,6 +30,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
   "https://ojest-client.vercel.app",
+  "https://ojest-sell-two.vercel.app",
 ];
 
 // Log CORS configuration
