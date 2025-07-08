@@ -31,8 +31,7 @@ exports.createBuyerRequest = async (req, res) => {
       description,
       make,
       model,
-      yearFrom,
-      yearTo,
+      type,
       budgetMin,
       budgetMax,
       preferredCondition,
@@ -67,8 +66,7 @@ exports.createBuyerRequest = async (req, res) => {
       description,
       make,
       model,
-      yearFrom,
-      yearTo,
+      type,
       budgetMin,
       budgetMax,
       preferredCondition,
@@ -102,8 +100,7 @@ exports.getAllBuyerRequests = async (req, res) => {
     const {
       make,
       model,
-      yearFrom,
-      yearTo,
+      type,
       budgetMin,
       budgetMax,
       status = "Active",
@@ -115,11 +112,7 @@ exports.getAllBuyerRequests = async (req, res) => {
 
     if (make) query.make = make;
     if (model) query.model = model;
-
-    if (yearFrom && yearTo) {
-      query.yearFrom = { $lte: yearTo };
-      query.yearTo = { $gte: yearFrom };
-    }
+    if (type) query.type = type;
 
     if (budgetMin || budgetMax) {
       query.budgetMax = {};

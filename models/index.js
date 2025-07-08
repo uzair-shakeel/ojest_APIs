@@ -337,12 +337,8 @@ const buyerRequestSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    yearFrom: {
-      type: Number,
-      trim: true,
-    },
-    yearTo: {
-      type: Number,
+    type: {
+      type: String,
       trim: true,
     },
     budgetMin: {
@@ -356,7 +352,7 @@ const buyerRequestSchema = new mongoose.Schema(
     },
     preferredCondition: {
       type: String,
-      enum: ["New", "Used", "Any"],
+      enum: ["New", "Used", "Demo", "Slightly Used", "Any"],
       default: "Any",
     },
     location: {
