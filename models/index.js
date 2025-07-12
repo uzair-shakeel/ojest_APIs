@@ -69,6 +69,17 @@ const userSchema = new mongoose.Schema(
       default: "private",
       required: true,
     },
+    brands: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: function (v) {
+          // Only validate brands if the seller type is 'company'
+          return this.sellerType !== "company" || (v && v.length > 0);
+        },
+        message: "Company sellers must have at least one brand",
+      },
+    },
     blocked: {
       type: Boolean,
       default: false,

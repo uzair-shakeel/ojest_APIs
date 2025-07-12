@@ -132,6 +132,7 @@ exports.getUserById = async (req, res) => {
       companyName: user.companyName,
       role: user.role,
       sellerType: user.sellerType,
+      brands: user.brands || [], // Add brands to the response
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       clerkData: {
@@ -149,8 +150,11 @@ exports.getUserById = async (req, res) => {
 // Update user profile (Normal user)
 exports.updateProfile = async (req, res) => {
   try {
-    console.log("Update Profile Request Body:", req.body);
-    console.log("Update Profile Auth:", req.auth);
+    console.log(
+      "Update Profile Request Body (RAW):",
+      JSON.stringify(req.body, null, 2)
+    );
+    console.log("Update Profile Auth:", JSON.stringify(req.auth, null, 2));
 
     const { userId } = req.auth;
     if (!userId) {
@@ -174,107 +178,107 @@ exports.updateProfile = async (req, res) => {
       location,
       description,
       companyName,
+      brands,
     } = req.body;
 
-    console.log("Extracted data:", {
-      firstName,
-      lastName,
+    console.log("Received Data:", {
       sellerType,
-      socialMedia:
-        typeof socialMedia === "string" ? "JSON string" : socialMedia,
-      phoneNumbers:
-        typeof phoneNumbers === "string" ? "JSON string" : phoneNumbers,
-      location: typeof location === "string" ? "JSON string" : location,
-      description,
-      companyName,
+      brands: brands ? JSON.stringify(brands) : null,
+      socialMedia: socialMedia ? JSON.stringify(socialMedia) : null,
+      phoneNumbers: phoneNumbers ? JSON.stringify(phoneNumbers) : null,
     });
 
-    if (sellerType && !["private", "company"].includes(sellerType)) {
-      return res
-        .status(400)
-        .json({ error: 'Invalid sellerType. Must be "private" or "company".' });
+    const updateData = {};
+
+    // Validate and set seller type
+    if (sellerType) {
+      if (!["private", "company"].includes(sellerType)) {
+        return res.status(400).json({
+          error: 'Invalid seller type. Must be "private" or "company".',
+        });
+      }
+      updateData.sellerType = sellerType;
     }
 
-    const updateData = {};
+    // Handle brands for company sellers
+    if (sellerType === "company") {
+      if (!brands || !Array.isArray(brands) || brands.length === 0) {
+        return res.status(400).json({
+          error: "Company sellers must specify at least one brand.",
+        });
+      }
+      updateData.brands = brands;
+    }
+
+    // Optional fields
     if (firstName) updateData.firstName = firstName;
     if (lastName) updateData.lastName = lastName;
-    if (sellerType) updateData.sellerType = sellerType;
+    if (description) updateData.description = description;
+    if (companyName) updateData.companyName = companyName;
 
-    // Handle socialMedia
+    // Handle social media
     if (socialMedia) {
       try {
-        updateData.socialMedia =
+        // Parse if it's a string, otherwise use as-is
+        const parsedSocialMedia =
           typeof socialMedia === "string"
             ? JSON.parse(socialMedia)
             : socialMedia;
+
+        updateData.socialMedia = parsedSocialMedia;
       } catch (err) {
-        console.error("Error parsing socialMedia:", err);
-        return res.status(400).json({ error: "Invalid socialMedia format" });
+        return res.status(400).json({ error: "Invalid social media format" });
       }
     }
 
-    // Handle phoneNumbers
+    // Handle phone numbers
     if (phoneNumbers) {
       try {
-        // If phoneNumbers is a string, parse it
+        // Parse if it's a string, otherwise use as-is
         const parsedPhoneNumbers =
           typeof phoneNumbers === "string"
             ? JSON.parse(phoneNumbers)
             : phoneNumbers;
 
-        // Ensure it's an array
-        if (Array.isArray(parsedPhoneNumbers)) {
-          updateData.phoneNumbers = parsedPhoneNumbers;
-        } else {
-          console.error("phoneNumbers is not an array:", parsedPhoneNumbers);
+        if (!Array.isArray(parsedPhoneNumbers)) {
           return res
             .status(400)
-            .json({ error: "phoneNumbers must be an array" });
+            .json({ error: "Phone numbers must be an array" });
         }
+
+        updateData.phoneNumbers = parsedPhoneNumbers;
       } catch (err) {
-        console.error("Error parsing phoneNumbers:", err);
-        return res.status(400).json({ error: "Invalid phoneNumbers format" });
+        return res.status(400).json({ error: "Invalid phone numbers format" });
       }
     }
 
-    if (description) updateData.description = description;
-    if (companyName) updateData.companyName = companyName;
-    if (req.file) updateData.image = req.file.cloudinaryUrl;
-
-    // Validate location
+    // Handle location
     if (location) {
       try {
+        // Parse if it's a string, otherwise use as-is
         const parsedLocation =
           typeof location === "string" ? JSON.parse(location) : location;
+
         if (
-          parsedLocation.type === "Point" &&
-          Array.isArray(parsedLocation.coordinates) &&
-          parsedLocation.coordinates.length === 2 &&
-          typeof parsedLocation.coordinates[1] === "number" &&
-          typeof parsedLocation.coordinates[0] === "number" &&
-          !isNaN(parsedLocation.coordinates[1]) &&
-          !isNaN(parsedLocation.coordinates[0])
+          parsedLocation.type !== "Point" ||
+          !Array.isArray(parsedLocation.coordinates) ||
+          parsedLocation.coordinates.length !== 2
         ) {
-          updateData.location = {
-            type: "Point",
-            coordinates: parsedLocation.coordinates,
-          };
-        } else {
-          console.error("Invalid location format:", parsedLocation);
-          return res.status(400).json({
-            error:
-              'Invalid location. Must be an object { type: "Point", coordinates: [longitude, latitude] }.',
-          });
+          return res.status(400).json({ error: "Invalid location format" });
         }
+
+        updateData.location = parsedLocation;
       } catch (err) {
-        console.error("Error parsing location:", err);
         return res.status(400).json({ error: "Invalid location format" });
       }
     }
 
-    updateData.updatedAt = new Date();
+    // Add image if uploaded
+    if (req.file) {
+      updateData.image = req.file.cloudinaryUrl;
+    }
 
-    console.log("Final update data:", updateData);
+    console.log("Final Update Data:", JSON.stringify(updateData, null, 2));
 
     const updatedUser = await User.findOneAndUpdate(
       { clerkUserId: userId },
@@ -282,19 +286,7 @@ exports.updateProfile = async (req, res) => {
       { new: true }
     );
 
-    console.log("Updated user:", updatedUser);
-
-    // Update Clerk's public_metadata
-    const metadata = {
-      sellerType: updatedUser.sellerType,
-      phoneNumbers: updatedUser.phoneNumbers,
-      socialMedia: updatedUser.socialMedia,
-      location: updatedUser.location,
-      description: updatedUser.description,
-      companyName: updatedUser.companyName,
-      role: updatedUser.role,
-    };
-    await clerkClient.users.updateUser(userId, { publicMetadata: metadata });
+    console.log("Updated User:", JSON.stringify(updatedUser, null, 2));
 
     res.json(updatedUser);
   } catch (error) {
