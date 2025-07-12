@@ -362,11 +362,29 @@ exports.getAvailableBuyerRequests = async (req, res) => {
     const { make, model, page = 1, limit = 10 } = req.query;
     console.log("Query params:", { make, model, page, limit });
 
+    // Find the current user to get their brands and seller type
+    const user = await User.findOne({ clerkUserId: userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Only process requests for company sellers
+    if (user.sellerType !== "company") {
+      return res.status(403).json({
+        message: "Only company sellers can view available requests",
+      });
+    }
+
     // Always use "Active" with capital A to match the database
     const query = {
       status: "Active",
       expiryDate: { $gt: new Date() },
     };
+
+    // Filter by seller's brands
+    if (user.brands && user.brands.length > 0) {
+      query.make = { $in: user.brands };
+    }
 
     if (make) query.make = make;
     if (model) query.model = model;
@@ -389,18 +407,6 @@ exports.getAvailableBuyerRequests = async (req, res) => {
       query._id = { $nin: existingOffers };
     }
 
-    // Debug: List all buyer requests in the database
-    const allRequests = await BuyerRequest.find().limit(20);
-    console.log(
-      "All buyer requests in DB:",
-      allRequests.map((r) => ({
-        id: r._id,
-        buyerId: r.buyerId,
-        title: r.title,
-        status: r.status,
-      }))
-    );
-
     const totalRequests = await BuyerRequest.countDocuments(query);
     console.log("Total matching requests:", totalRequests);
 
@@ -417,6 +423,7 @@ exports.getAvailableBuyerRequests = async (req, res) => {
         buyerId: r.buyerId,
         title: r.title,
         status: r.status,
+        make: r.make,
       }))
     );
 
