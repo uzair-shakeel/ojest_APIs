@@ -7,24 +7,15 @@ const { clerkClient } = require("@clerk/clerk-sdk-node");
 exports.syncUser = async (req, res) => {
   try {
     const { user } = req.body;
-    console.log(user);
+    console.log("Sync User Request:", user);
     const userId = user.id;
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    console.log(userId);
-
     // Fetch user from Clerk
     const clerkUser = await clerkClient.users.getUser(userId);
-    console.log("hhhhhhhhhhh", clerkUser);
-
-    // Check if user already exists
-    const existingUser = await User.findOne({ clerkUserId: userId });
-    if (existingUser) {
-      return res.status(400).json({ error: "User already exists" });
-    }
 
     // Extract email from Clerk's emailAddresses
     const email = clerkUser.emailAddresses.find(
@@ -35,39 +26,50 @@ exports.syncUser = async (req, res) => {
       return res.status(400).json({ error: "Email not found for user" });
     }
 
-    // Create new user in MongoDB with fixed fields
-    const newUser = new User({
-      clerkUserId: userId,
-      email,
-      firstName: clerkUser.firstName || "",
-      lastName: clerkUser.lastName || "",
-      sellerType: "private", // Default as per your schema
-      // Ensure any fields that might have unique constraints are properly set
-      image: clerkUser.profileImageUrl || "",
-      phoneNumbers: [],
-      socialMedia: {
-        instagram: "",
-        facebook: "",
-        twitter: "",
-        website: "",
-        linkedin: "",
+    // Upsert user in MongoDB
+    const updatedUser = await User.findOneAndUpdate(
+      { clerkUserId: userId },
+      {
+        clerkUserId: userId,
+        email,
+        firstName: clerkUser.firstName || "",
+        lastName: clerkUser.lastName || "",
+        sellerType: "private", // Default seller type
+        image: clerkUser.profileImageUrl || "",
+        phoneNumbers: [],
+        socialMedia: {
+          instagram: "",
+          facebook: "",
+          twitter: "",
+          website: "",
+          linkedin: "",
+        },
+        description: "",
+        companyName: "",
+        role: "user",
+        location: {
+          type: "Point",
+          coordinates: [0, 0],
+        },
+        updatedAt: new Date(),
       },
-      description: "",
-      companyName: "",
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    console.log("User synced to MongoDB:", updatedUser);
+    res.status(201).json({
+      message: "User synced successfully",
+      user: updatedUser,
     });
-
-    await newUser.save();
-
-    console.log("User synced to MongoDB:", newUser);
-    res
-      .status(201)
-      .json({ message: "User synced successfully", user: newUser });
   } catch (error) {
     console.error("Error syncing user:", error);
 
     // Check if it's a duplicate key error
     if (error.code === 11000) {
-      // Get the field that caused the duplicate key error
       const keyPattern = error.keyPattern;
       const keyValue = error.keyValue;
       const fieldName = Object.keys(keyPattern)[0];
@@ -80,9 +82,10 @@ exports.syncUser = async (req, res) => {
       });
     }
 
-    res
-      .status(500)
-      .json({ error: "Failed to sync user", details: error.message });
+    res.status(500).json({
+      error: "Failed to sync user",
+      details: error.message,
+    });
   }
 };
 // Get all users (Admin route)

@@ -8,6 +8,8 @@ const { Server } = require("socket.io");
 const { clerkMiddleware } = require("@clerk/express");
 const carController = require("./controllers/car"); // Adjust path
 const { clerkAuth } = require("./middlewares/clerkAuth");
+const buyerRequestRoutes = require("./routes/buyerRequest");
+const sellerOfferRoutes = require("./routes/sellerOffer");
 
 // Connect to Database
 const { connectDB } = require("./config/connect");
@@ -33,9 +35,6 @@ const allowedOrigins = [
   "https://ojest-sell-two.vercel.app",
 ];
 
-// Log CORS configuration
-console.log("CORS allowed origins:", allowedOrigins);
-
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -50,7 +49,6 @@ app.use(
         console.log(msg);
         return callback(new Error(msg), false);
       }
-      console.log("CORS allowed for origin:", origin);
       return callback(null, true);
     },
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
@@ -70,7 +68,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // Log all incoming requests
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url}`);
   next();
 });
 
@@ -79,38 +76,13 @@ app.get("/api/test", (req, res) => {
   res.json({ message: "API is working correctly" });
 });
 
-// Debug route to check authentication
-app.get("/api/auth-test", clerkAuth, (req, res) => {
-  console.log("Auth test route called");
-  console.log("Auth object:", req.auth);
-
-  res.json({
-    message: "Authentication test",
-    auth: req.auth
-      ? {
-          userId: req.auth.userId,
-          sessionId: req.auth.sessionId,
-          tokenAvailable: !!req.auth.getToken,
-        }
-      : null,
-  });
-});
-
 // Set Up Routes
-console.log("Setting up routes...");
+
 app.use("/api/users", require("./routes/user"));
 app.use("/api/cars", require("./routes/car"));
 app.use("/api/chat", require("./routes/chat"));
-const buyerRequestRoutes = require("./routes/buyerRequest");
 app.use("/api/buyer-requests", buyerRequestRoutes);
-
-try {
-  const sellerOfferRoutes = require("./routes/sellerOffer");
-  console.log("Seller offer routes loaded successfully");
-  app.use("/api/seller-offers", sellerOfferRoutes);
-} catch (error) {
-  console.error("Error loading seller offer routes:", error);
-}
+app.use("/api/seller-offers", sellerOfferRoutes);
 
 // Pass io to car controller
 carController.setIo(io);
@@ -143,35 +115,6 @@ const startServer = async () => {
       console.log(
         `API Documentation available at http://localhost:${PORT}/api`
       );
-
-      // Log all available routes for debugging
-      console.log("\nAvailable Routes:");
-      app._router.stack.forEach((r) => {
-        if (r.route && r.route.path) {
-          console.log(
-            `${Object.keys(r.route.methods).join(", ").toUpperCase()} ${
-              r.route.path
-            }`
-          );
-        } else if (r.name === "router" && r.handle.stack) {
-          const basePath = r.regexp
-            .toString()
-            .replace("\\^", "")
-            .replace("\\/?(?=\\/|$)", "")
-            .replace(/\\\//g, "/")
-            .replace("$", "");
-          r.handle.stack.forEach((sr) => {
-            if (sr.route) {
-              const fullPath = basePath + sr.route.path;
-              console.log(
-                `${Object.keys(sr.route.methods)
-                  .join(", ")
-                  .toUpperCase()} ${fullPath}`
-              );
-            }
-          });
-        }
-      });
     });
   } catch (error) {
     console.error("Failed to start server:", error);

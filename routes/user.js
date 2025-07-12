@@ -43,7 +43,7 @@ router.patch("/type/:id", clerkAuth, userController.updateSellerType);
 router.delete("/account", clerkAuth, userController.deleteAccount);
 // Sync user from Clerk to MongoDB
 // router.post('/sync-user', clerkAuth, userController.syncUser);
-// just for testing
+// Sync user route (public)
 router.post("/sync-user", userController.syncUser);
 
 // Export routes
