@@ -275,7 +275,39 @@ exports.updateProfile = async (req, res) => {
 
     // Add image if uploaded
     if (req.file) {
+      // Validate image file
+      const allowedMimeTypes = [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+      ];
+      if (!allowedMimeTypes.includes(req.file.mimetype)) {
+        return res.status(400).json({
+          error:
+            "Invalid image type. Only JPEG, PNG, WebP, and GIF are allowed.",
+        });
+      }
+
+      // Optional: Add file size limit (e.g., 5MB)
+      const maxFileSize = 5 * 1024 * 1024; // 5MB
+      if (req.file.size > maxFileSize) {
+        return res.status(400).json({
+          error: "Image file is too large. Maximum size is 5MB.",
+        });
+      }
+
       updateData.image = req.file.cloudinaryUrl;
+
+      // Optional: Update Clerk's profile image
+      try {
+        await clerkClient.users.updateUser(userId, {
+          profileImage: req.file.cloudinaryUrl,
+        });
+      } catch (clerkUpdateError) {
+        console.warn("Failed to update Clerk profile image:", clerkUpdateError);
+        // Continue with the update even if Clerk update fails
+      }
     }
 
     console.log("Final Update Data:", JSON.stringify(updateData, null, 2));
