@@ -37,6 +37,7 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3001",
   "https://ojest-client.vercel.app",
+  "https://b7e6e2a7a0f3c7f3b3b0c7b8e0f6b7a6c2e.vercel.app",
   "https://ojest-sell-two.vercel.app",
 ];
 
