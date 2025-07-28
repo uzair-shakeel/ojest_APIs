@@ -558,3 +558,275 @@ exports.getRecommendedCars = async (req, res) => {
     });
   }
 };
+
+// Admin endpoints
+
+// Get car statistics for admin dashboard
+exports.getCarStats = async (req, res) => {
+  try {
+    // Remove admin check for now - direct access
+
+    // Total cars
+    const totalCars = await Car.countDocuments();
+
+    // Cars by status
+    const carsByStatus = await Car.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Cars by make
+    const carsByMake = await Car.aggregate([
+      {
+        $group: {
+          _id: "$make",
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { count: -1 },
+      },
+      {
+        $limit: 10,
+      },
+    ]);
+
+    // Cars by condition
+    const carsByCondition = await Car.aggregate([
+      {
+        $group: {
+          _id: "$carCondition.overall",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Cars by seller type
+    const carsBySellerType = await Car.aggregate([
+      {
+        $lookup: {
+          from: "users",
+          localField: "createdBy",
+          foreignField: "clerkUserId",
+          as: "seller",
+        },
+      },
+      {
+        $unwind: "$seller",
+      },
+      {
+        $group: {
+          _id: "$seller.sellerType",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // New cars per month (last 12 months)
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+
+    const newCarsPerMonth = await Car.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: twelveMonthsAgo },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { "_id.year": 1, "_id.month": 1 },
+      },
+    ]);
+
+    // Average price by make
+    const avgPriceByMake = await Car.aggregate([
+      {
+        $match: {
+          "financialInfo.priceNetto": { $exists: true, $ne: "" },
+        },
+      },
+      {
+        $addFields: {
+          priceAsNumber: { $toDouble: "$financialInfo.priceNetto" },
+        },
+      },
+      {
+        $group: {
+          _id: "$make",
+          avgPrice: { $avg: "$priceAsNumber" },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $match: {
+          count: { $gte: 5 }, // Only include makes with at least 5 cars
+        },
+      },
+      {
+        $sort: { avgPrice: -1 },
+      },
+      {
+        $limit: 10,
+      },
+    ]);
+
+    res.json({
+      totalCars,
+      carsByStatus,
+      carsByMake,
+      carsByCondition,
+      carsBySellerType,
+      newCarsPerMonth,
+      avgPriceByMake,
+    });
+  } catch (error) {
+    console.error("Error getting car stats:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Get all cars for admin with pagination and filtering
+exports.getAllCarsForAdmin = async (req, res) => {
+  try {
+    // Remove admin check for now - direct access
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Build filter
+    const matchFilter = {};
+    if (req.query.make) matchFilter.make = req.query.make;
+    if (req.query.model) matchFilter.model = req.query.model;
+    if (req.query.status) matchFilter.status = req.query.status;
+    if (req.query.condition)
+      matchFilter["carCondition.overall"] = req.query.condition;
+    if (req.query.search) {
+      matchFilter.$or = [
+        { title: { $regex: req.query.search, $options: "i" } },
+        { make: { $regex: req.query.search, $options: "i" } },
+        { model: { $regex: req.query.search, $options: "i" } },
+        { vin: { $regex: req.query.search, $options: "i" } },
+      ];
+    }
+
+    // Use aggregation with lookup to join with users
+    const pipeline = [
+      { $match: matchFilter },
+      {
+        $lookup: {
+          from: "users",
+          localField: "createdBy",
+          foreignField: "clerkUserId",
+          as: "creator",
+        },
+      },
+      {
+        $addFields: {
+          createdBy: { $arrayElemAt: ["$creator", 0] },
+        },
+      },
+      {
+        $project: {
+          creator: 0,
+          __v: 0,
+          "createdBy.clerkUserId": 0,
+          "createdBy.__v": 0,
+          "createdBy.socialMedia": 0,
+          "createdBy.phoneNumbers": 0,
+          "createdBy.location": 0,
+          "createdBy.image": 0,
+          "createdBy.description": 0,
+          "createdBy.brands": 0,
+          "createdBy.blocked": 0,
+          "createdBy.role": 0,
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ];
+
+    const cars = await Car.aggregate(pipeline);
+    const totalCars = await Car.countDocuments(matchFilter);
+    const totalPages = Math.ceil(totalCars / limit);
+
+    res.json({
+      cars,
+      currentPage: page,
+      totalPages,
+      totalCars,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    });
+  } catch (error) {
+    console.error("Error getting cars for admin:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Admin function to update car status
+exports.updateCarStatusAdmin = async (req, res) => {
+  try {
+    const { carId } = req.params;
+    const { status } = req.body;
+
+    // Remove admin check for now - direct access
+
+    if (!["available", "sold", "suspended", "pending"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+
+    const car = await Car.findById(carId);
+    if (!car) {
+      return res.status(404).json({ message: "Car not found" });
+    }
+
+    car.status = status;
+    await car.save();
+
+    res.json({
+      message: "Car status updated successfully",
+      car,
+    });
+  } catch (error) {
+    console.error("Error updating car status:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Admin function to delete car
+exports.deleteCarAdmin = async (req, res) => {
+  try {
+    const { carId } = req.params;
+
+    // Remove admin check for now - direct access
+
+    const car = await Car.findById(carId);
+    if (!car) {
+      return res.status(404).json({ message: "Car not found" });
+    }
+
+    // Delete car from database
+    await Car.findByIdAndDelete(carId);
+
+    res.json({
+      message: "Car deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting car:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};

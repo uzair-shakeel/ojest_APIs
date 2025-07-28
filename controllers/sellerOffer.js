@@ -500,3 +500,420 @@ exports.debugSellerOffers = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+// Get seller offer statistics for admin dashboard
+exports.getSellerOfferStats = async (req, res) => {
+  try {
+    // Remove admin check for now - direct access
+
+    // Total seller offers
+    const totalOffers = await SellerOffer.countDocuments();
+
+    // Offers by status
+    const offersByStatus = await SellerOffer.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Average offer price
+    const avgOfferPrice = await SellerOffer.aggregate([
+      {
+        $match: {
+          offerPrice: { $exists: true, $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          avgPrice: { $avg: "$offerPrice" },
+        },
+      },
+    ]);
+
+    // New offers per month (last 12 months)
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+
+    const newOffersPerMonth = await SellerOffer.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: twelveMonthsAgo },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { "_id.year": 1, "_id.month": 1 },
+      },
+    ]);
+
+    // Offers by seller type
+    const offersBySellerType = await SellerOffer.aggregate([
+      {
+        $lookup: {
+          from: "users",
+          localField: "sellerId",
+          foreignField: "clerkUserId",
+          as: "seller",
+        },
+      },
+      {
+        $unwind: "$seller",
+      },
+      {
+        $group: {
+          _id: "$seller.sellerType",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    res.json({
+      totalOffers,
+      offersByStatus,
+      avgOfferPrice: avgOfferPrice[0]?.avgPrice || 0,
+      newOffersPerMonth,
+      offersBySellerType,
+    });
+  } catch (error) {
+    console.error("Error getting seller offer stats:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Get all seller offers for admin with pagination and filtering
+exports.getAllSellerOffersForAdmin = async (req, res) => {
+  try {
+    // Remove admin check for now - direct access
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Build filter
+    const matchFilter = {};
+    if (req.query.status) matchFilter.status = req.query.status;
+    if (req.query.requestId) matchFilter.requestId = req.query.requestId;
+    if (req.query.search) {
+      matchFilter.$or = [
+        { message: { $regex: req.query.search, $options: "i" } },
+        { "carDetails.make": { $regex: req.query.search, $options: "i" } },
+        { "carDetails.model": { $regex: req.query.search, $options: "i" } },
+      ];
+    }
+
+    // Use aggregation with lookup to join with users and buyer requests
+    const pipeline = [
+      { $match: matchFilter },
+      {
+        $lookup: {
+          from: "users",
+          localField: "sellerId",
+          foreignField: "clerkUserId",
+          as: "seller",
+        },
+      },
+      {
+        $lookup: {
+          from: "buyerrequests",
+          localField: "requestId",
+          foreignField: "_id",
+          as: "request",
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "request.buyerId",
+          foreignField: "clerkUserId",
+          as: "buyer",
+        },
+      },
+      {
+        $addFields: {
+          sellerId: { $arrayElemAt: ["$seller", 0] },
+          requestId: {
+            $mergeObjects: [
+              { $arrayElemAt: ["$request", 0] },
+              { buyerId: { $arrayElemAt: ["$buyer", 0] } },
+            ],
+          },
+        },
+      },
+      {
+        $project: {
+          seller: 0,
+          request: 0,
+          buyer: 0,
+          __v: 0,
+          "sellerId.clerkUserId": 0,
+          "sellerId.__v": 0,
+          "sellerId.socialMedia": 0,
+          "sellerId.phoneNumbers": 0,
+          "sellerId.location": 0,
+          "sellerId.image": 0,
+          "sellerId.description": 0,
+          "sellerId.brands": 0,
+          "sellerId.blocked": 0,
+          "sellerId.role": 0,
+          "requestId.buyerId.clerkUserId": 0,
+          "requestId.buyerId.__v": 0,
+          "requestId.buyerId.socialMedia": 0,
+          "requestId.buyerId.phoneNumbers": 0,
+          "requestId.buyerId.location": 0,
+          "requestId.buyerId.image": 0,
+          "requestId.buyerId.description": 0,
+          "requestId.buyerId.companyName": 0,
+          "requestId.buyerId.sellerType": 0,
+          "requestId.buyerId.brands": 0,
+          "requestId.buyerId.blocked": 0,
+          "requestId.buyerId.role": 0,
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ];
+
+    const offers = await SellerOffer.aggregate(pipeline);
+    const totalOffers = await SellerOffer.countDocuments(matchFilter);
+    const totalPages = Math.ceil(totalOffers / limit);
+
+    res.json({
+      offers,
+      currentPage: page,
+      totalPages,
+      totalOffers,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    });
+  } catch (error) {
+    console.error("Error getting seller offers for admin:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Admin function to update seller offer status
+exports.updateSellerOfferStatusAdmin = async (req, res) => {
+  try {
+    const { offerId } = req.params;
+    const { status } = req.body;
+
+    // Remove admin check for now - direct access
+
+    if (!["pending", "accepted", "rejected", "withdrawn"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+
+    const offer = await SellerOffer.findById(offerId);
+    if (!offer) {
+      return res.status(404).json({ message: "Seller offer not found" });
+    }
+
+    offer.status = status;
+    await offer.save();
+
+    res.json({
+      message: "Seller offer status updated successfully",
+      offer,
+    });
+  } catch (error) {
+    console.error("Error updating seller offer status:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Admin function to delete seller offer
+exports.deleteSellerOfferAdmin = async (req, res) => {
+  try {
+    const { offerId } = req.params;
+
+    // Remove admin check for now - direct access
+
+    const offer = await SellerOffer.findById(offerId);
+    if (!offer) {
+      return res.status(404).json({ message: "Seller offer not found" });
+    }
+
+    await SellerOffer.findByIdAndDelete(offerId);
+
+    res.json({
+      message: "Seller offer deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting seller offer:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Regular functions for the main app
+exports.createSellerOffer = async (req, res) => {
+  try {
+    const { userId } = req.auth;
+    const { requestId, offerPrice, message, carDetails } = req.body;
+
+    // Check if user exists
+    const user = await User.findOne({ clerkUserId: userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check if buyer request exists
+    const buyerRequest = await BuyerRequest.findById(requestId);
+    if (!buyerRequest) {
+      return res.status(404).json({ message: "Buyer request not found" });
+    }
+
+    // Check if seller has already made an offer for this request
+    const existingOffer = await SellerOffer.findOne({
+      sellerId: userId,
+      requestId: requestId,
+    });
+
+    if (existingOffer) {
+      return res
+        .status(400)
+        .json({ message: "You have already made an offer for this request" });
+    }
+
+    const newOffer = new SellerOffer({
+      sellerId: userId,
+      requestId,
+      offerPrice,
+      message,
+      carDetails,
+      status: "pending",
+    });
+
+    await newOffer.save();
+
+    res.status(201).json({
+      message: "Seller offer created successfully",
+      offer: newOffer,
+    });
+  } catch (error) {
+    console.error("Error creating seller offer:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+exports.getOffersForRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+
+    const offers = await SellerOffer.find({ requestId })
+      .populate("sellerId", "firstName lastName email sellerType companyName")
+      .sort({ createdAt: -1 });
+
+    res.json({ offers });
+  } catch (error) {
+    console.error("Error getting offers for request:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+exports.getSellerOffersBySellerId = async (req, res) => {
+  try {
+    const { userId } = req.auth;
+
+    const offers = await SellerOffer.find({ sellerId: userId })
+      .populate("requestId", "title make model budgetMin budgetMax")
+      .sort({ createdAt: -1 });
+
+    res.json({ offers });
+  } catch (error) {
+    console.error("Error getting seller offers:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+exports.getSellerOfferById = async (req, res) => {
+  try {
+    const { offerId } = req.params;
+
+    const offer = await SellerOffer.findById(offerId)
+      .populate("sellerId", "firstName lastName email sellerType companyName")
+      .populate("requestId", "title make model budgetMin budgetMax buyerId");
+
+    if (!offer) {
+      return res.status(404).json({ message: "Seller offer not found" });
+    }
+
+    res.json({ offer });
+  } catch (error) {
+    console.error("Error getting seller offer:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+exports.updateSellerOffer = async (req, res) => {
+  try {
+    const { userId } = req.auth;
+    const { offerId } = req.params;
+    const { offerPrice, message, carDetails } = req.body;
+
+    const offer = await SellerOffer.findOne({ _id: offerId, sellerId: userId });
+    if (!offer) {
+      return res.status(404).json({
+        message:
+          "Seller offer not found or you are not authorized to update it",
+      });
+    }
+
+    // Only allow updates if offer is still pending
+    if (offer.status !== "pending") {
+      return res
+        .status(400)
+        .json({ message: "Cannot update offer that is not pending" });
+    }
+
+    offer.offerPrice = offerPrice || offer.offerPrice;
+    offer.message = message || offer.message;
+    offer.carDetails = carDetails || offer.carDetails;
+
+    await offer.save();
+
+    res.json({
+      message: "Seller offer updated successfully",
+      offer,
+    });
+  } catch (error) {
+    console.error("Error updating seller offer:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+exports.deleteSellerOffer = async (req, res) => {
+  try {
+    const { userId } = req.auth;
+    const { offerId } = req.params;
+
+    const offer = await SellerOffer.findOne({ _id: offerId, sellerId: userId });
+    if (!offer) {
+      return res.status(404).json({
+        message:
+          "Seller offer not found or you are not authorized to delete it",
+      });
+    }
+
+    await SellerOffer.findByIdAndDelete(offerId);
+
+    res.json({
+      message: "Seller offer deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting seller offer:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};

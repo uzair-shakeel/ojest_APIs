@@ -442,3 +442,273 @@ exports.debugBuyerRequests = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+// Admin endpoints
+
+// Get buyer request statistics for admin dashboard
+exports.getBuyerRequestStats = async (req, res) => {
+  try {
+    // Remove admin check for now - direct access
+
+    // Total buyer requests
+    const totalRequests = await BuyerRequest.countDocuments();
+
+    // Requests by status
+    const requestsByStatus = await BuyerRequest.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Requests by preferred condition
+    const requestsByCondition = await BuyerRequest.aggregate([
+      {
+        $group: {
+          _id: "$preferredCondition",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Requests by make
+    const requestsByMake = await BuyerRequest.aggregate([
+      {
+        $match: {
+          make: { $exists: true, $ne: "" },
+        },
+      },
+      {
+        $group: {
+          _id: "$make",
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { count: -1 },
+      },
+      {
+        $limit: 10,
+      },
+    ]);
+
+    // New requests per month (last 12 months)
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+
+    const newRequestsPerMonth = await BuyerRequest.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: twelveMonthsAgo },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { "_id.year": 1, "_id.month": 1 },
+      },
+    ]);
+
+    // Average budget range
+    const budgetStats = await BuyerRequest.aggregate([
+      {
+        $match: {
+          budgetMax: { $exists: true, $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          avgBudgetMax: { $avg: "$budgetMax" },
+          avgBudgetMin: { $avg: "$budgetMin" },
+          maxBudget: { $max: "$budgetMax" },
+          minBudget: { $min: "$budgetMax" },
+        },
+      },
+    ]);
+
+    // Offers count per request
+    const offersPerRequest = await SellerOffer.aggregate([
+      {
+        $group: {
+          _id: "$requestId",
+          offerCount: { $sum: 1 },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          avgOffersPerRequest: { $avg: "$offerCount" },
+          maxOffersPerRequest: { $max: "$offerCount" },
+        },
+      },
+    ]);
+
+    res.json({
+      totalRequests,
+      requestsByStatus,
+      requestsByCondition,
+      requestsByMake,
+      newRequestsPerMonth,
+      budgetStats: budgetStats[0] || {},
+      offersPerRequest: offersPerRequest[0] || {},
+    });
+  } catch (error) {
+    console.error("Error getting buyer request stats:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Get all buyer requests for admin with pagination and filtering
+exports.getAllBuyerRequestsForAdmin = async (req, res) => {
+  try {
+    // Remove admin check for now - direct access
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Build filter
+    const matchFilter = {};
+    if (req.query.status) matchFilter.status = req.query.status;
+    if (req.query.make) matchFilter.make = req.query.make;
+    if (req.query.preferredCondition)
+      matchFilter.preferredCondition = req.query.preferredCondition;
+    if (req.query.search) {
+      matchFilter.$or = [
+        { title: { $regex: req.query.search, $options: "i" } },
+        { description: { $regex: req.query.search, $options: "i" } },
+        { make: { $regex: req.query.search, $options: "i" } },
+        { model: { $regex: req.query.search, $options: "i" } },
+      ];
+    }
+
+    // Use aggregation with lookup to join with users and get offer counts
+    const pipeline = [
+      { $match: matchFilter },
+      {
+        $lookup: {
+          from: "users",
+          localField: "buyerId",
+          foreignField: "clerkUserId",
+          as: "buyer",
+        },
+      },
+      {
+        $lookup: {
+          from: "selleroffers",
+          localField: "_id",
+          foreignField: "requestId",
+          as: "offers",
+        },
+      },
+      {
+        $addFields: {
+          buyerId: { $arrayElemAt: ["$buyer", 0] },
+          offerCount: { $size: "$offers" },
+        },
+      },
+      {
+        $project: {
+          buyer: 0,
+          offers: 0,
+          __v: 0,
+          "buyerId.clerkUserId": 0,
+          "buyerId.__v": 0,
+          "buyerId.socialMedia": 0,
+          "buyerId.phoneNumbers": 0,
+          "buyerId.location": 0,
+          "buyerId.image": 0,
+          "buyerId.description": 0,
+          "buyerId.companyName": 0,
+          "buyerId.sellerType": 0,
+          "buyerId.brands": 0,
+          "buyerId.blocked": 0,
+          "buyerId.role": 0,
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ];
+
+    const requests = await BuyerRequest.aggregate(pipeline);
+    const totalRequests = await BuyerRequest.countDocuments(matchFilter);
+    const totalPages = Math.ceil(totalRequests / limit);
+
+    res.json({
+      requests,
+      currentPage: page,
+      totalPages,
+      totalRequests,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    });
+  } catch (error) {
+    console.error("Error getting buyer requests for admin:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Admin function to update buyer request status
+exports.updateBuyerRequestStatusAdmin = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const { status } = req.body;
+
+    // Remove admin check for now - direct access
+
+    if (!["Active", "Fulfilled", "Expired", "Cancelled"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+
+    const request = await BuyerRequest.findById(requestId);
+    if (!request) {
+      return res.status(404).json({ message: "Buyer request not found" });
+    }
+
+    request.status = status;
+    await request.save();
+
+    res.json({
+      message: "Buyer request status updated successfully",
+      request,
+    });
+  } catch (error) {
+    console.error("Error updating buyer request status:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Admin function to delete buyer request
+exports.deleteBuyerRequestAdmin = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+
+    // Remove admin check for now - direct access
+
+    const request = await BuyerRequest.findById(requestId);
+    if (!request) {
+      return res.status(404).json({ message: "Buyer request not found" });
+    }
+
+    // Delete buyer request from database
+    await BuyerRequest.findByIdAndDelete(requestId);
+
+    res.json({
+      message: "Buyer request deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting buyer request:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};

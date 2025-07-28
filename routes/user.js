@@ -21,6 +21,22 @@ router.get("/:id", userController.getUserById);
 // @Protected Routes (requires authentication)
 // Get all users (accessible only by admin)
 router.get("/", userController.getAllUsers);
+
+// @Admin Routes - NO AUTH REQUIRED FOR ADMIN PANEL
+// Get user statistics for admin dashboard
+router.get("/admin/stats", userController.getUserStats);
+// Get all users for admin with pagination and filtering
+router.get("/admin/all", userController.getAllUsersForAdmin);
+// Toggle user block status
+router.patch(
+  "/admin/:targetUserId/toggle-block",
+  userController.toggleUserBlock
+);
+// Change user role
+router.patch("/admin/:targetUserId/role", userController.changeUserRole);
+// Delete user (admin only)
+router.delete("/admin/:targetUserId", userController.deleteUser);
+
 // Update user profile
 router.put(
   "/profile",

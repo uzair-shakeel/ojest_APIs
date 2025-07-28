@@ -10,6 +10,10 @@ const carController = require("./controllers/car"); // Adjust path
 const { clerkAuth } = require("./middlewares/clerkAuth");
 const buyerRequestRoutes = require("./routes/buyerRequest");
 const sellerOfferRoutes = require("./routes/sellerOffer");
+const userRoutes = require("./routes/user");
+const carRoutes = require("./routes/car");
+const chatRoutes = require("./routes/chat");
+const webhookRoutes = require("./routes/webhook");
 
 // Connect to Database
 const { connectDB } = require("./config/connect");
@@ -30,6 +34,7 @@ const io = new Server(server, {
 const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:3000",
   "http://localhost:3000",
+  "http://localhost:5173",
   "http://localhost:3001",
   "https://ojest-client.vercel.app",
   "https://ojest-sell-two.vercel.app",
@@ -78,11 +83,12 @@ app.get("/api/test", (req, res) => {
 
 // Set Up Routes
 
-app.use("/api/users", require("./routes/user"));
-app.use("/api/cars", require("./routes/car"));
-app.use("/api/chat", require("./routes/chat"));
+app.use("/api/users", userRoutes);
+app.use("/api/cars", carRoutes);
 app.use("/api/buyer-requests", buyerRequestRoutes);
 app.use("/api/seller-offers", sellerOfferRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api", webhookRoutes);
 
 // Pass io to car controller
 carController.setIo(io);

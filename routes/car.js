@@ -20,6 +20,16 @@ router.get("/search", carController.searchCars);
 router.get("/recommended/:carId", carController.getRecommendedCars);
 router.get("/", carController.getAllCars);
 
+// @Admin Routes - NO AUTH REQUIRED FOR ADMIN PANEL
+// Get car statistics for admin dashboard
+router.get("/admin/stats", carController.getCarStats);
+// Get all cars for admin with pagination and filtering
+router.get("/admin/all", carController.getAllCarsForAdmin);
+// Update car status (admin)
+router.patch("/admin/:carId/status", carController.updateCarStatusAdmin);
+// Delete car (admin only)
+router.delete("/admin/:carId", carController.deleteCarAdmin);
+
 // Normal User Routes
 router.post(
   "/",

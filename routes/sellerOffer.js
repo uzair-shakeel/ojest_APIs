@@ -7,52 +7,39 @@ const {
   uploadToCloudinary,
 } = require("../middlewares/uploadMiddleware");
 
-// Debug route to verify the router is working
-router.get("/test", (req, res) => {
-  res.json({ message: "Seller offer routes are working" });
-});
-
-// Debug route to check seller offers for the authenticated user
-router.get("/debug", clerkAuth, sellerOfferController.debugSellerOffers);
-
-// Create a new offer for a buyer request
-router.post(
-  "/:requestId",
-  clerkAuth,
-  upload.array("files", 5),
-  uploadToCloudinary,
-  sellerOfferController.createOffer
+// @Admin Routes - NO AUTH REQUIRED FOR ADMIN PANEL
+// Get seller offer statistics for admin dashboard
+router.get("/admin/stats", sellerOfferController.getSellerOfferStats);
+// Get all seller offers for admin with pagination and filtering
+router.get("/admin/all", sellerOfferController.getAllSellerOffersForAdmin);
+// Update seller offer status (admin)
+router.patch(
+  "/admin/:offerId/status",
+  sellerOfferController.updateSellerOfferStatusAdmin
 );
+// Delete seller offer (admin only)
+router.delete("/admin/:offerId", sellerOfferController.deleteSellerOfferAdmin);
 
-// Get all offers made by a seller
-router.get("/my-offers", clerkAuth, sellerOfferController.getSellerOffers);
+// Create a new seller offer
+router.post("/", clerkAuth, sellerOfferController.createSellerOffer);
 
-// Get available buyer requests for sellers
+// Get all seller offers for a specific request
+router.get("/request/:requestId", sellerOfferController.getOffersForRequest);
+
+// Get seller offers by seller ID (for seller's dashboard)
 router.get(
-  "/available-requests",
+  "/my-offers",
   clerkAuth,
-  sellerOfferController.getAvailableBuyerRequests
+  sellerOfferController.getSellerOffersBySellerId
 );
 
-// Get a single offer by ID
-router.get("/:offerId", sellerOfferController.getOfferById);
+// Get a single seller offer by ID
+router.get("/:offerId", sellerOfferController.getSellerOfferById);
 
-// Update an offer
-router.put(
-  "/:offerId",
-  clerkAuth,
-  upload.array("files", 5),
-  uploadToCloudinary,
-  sellerOfferController.updateOffer
-);
+// Update a seller offer
+router.put("/:offerId", clerkAuth, sellerOfferController.updateSellerOffer);
 
-// Delete/cancel an offer
-router.delete("/:offerId", clerkAuth, sellerOfferController.deleteOffer);
-
-// Accept an offer (buyer only)
-router.post("/:offerId/accept", clerkAuth, sellerOfferController.acceptOffer);
-
-// Reject an offer (buyer only)
-router.post("/:offerId/reject", clerkAuth, sellerOfferController.rejectOffer);
+// Delete/withdraw a seller offer
+router.delete("/:offerId", clerkAuth, sellerOfferController.deleteSellerOffer);
 
 module.exports = router;

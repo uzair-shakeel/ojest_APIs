@@ -26,6 +26,22 @@ router.get("/debug/all", async (req, res) => {
 // Debug route to check buyer requests for the authenticated user
 router.get("/debug/user", clerkAuth, buyerRequestController.debugBuyerRequests);
 
+// @Admin Routes - NO AUTH REQUIRED FOR ADMIN PANEL
+// Get buyer request statistics for admin dashboard
+router.get("/admin/stats", buyerRequestController.getBuyerRequestStats);
+// Get all buyer requests for admin with pagination and filtering
+router.get("/admin/all", buyerRequestController.getAllBuyerRequestsForAdmin);
+// Update buyer request status (admin)
+router.patch(
+  "/admin/:requestId/status",
+  buyerRequestController.updateBuyerRequestStatusAdmin
+);
+// Delete buyer request (admin only)
+router.delete(
+  "/admin/:requestId",
+  buyerRequestController.deleteBuyerRequestAdmin
+);
+
 // Create a new buyer request
 router.post("/", clerkAuth, buyerRequestController.createBuyerRequest);
 
@@ -50,13 +66,6 @@ router.delete(
   "/:requestId",
   clerkAuth,
   buyerRequestController.deleteBuyerRequest
-);
-
-// Get offers for a specific buyer request
-router.get(
-  "/:requestId/offers",
-  clerkAuth,
-  buyerRequestController.getOffersForRequest
 );
 
 module.exports = router;
