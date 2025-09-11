@@ -1,20 +1,20 @@
-const express = require('express');
+const express = require("express");
+const { auth } = require("../middlewares/auth");
 const router = express.Router();
-const { createChat, getUserChats, getChatMessages } = require('../controllers/chat');
+const {
+  createChat,
+  getUserChats,
+  getChatMessages,
+} = require("../controllers/chat");
 
-// Middleware to verify Clerk user
-const verifyUser = (req, res, next) => {
-    const userId = req.headers['x-clerk-user-id']; // Adjust based on Clerk's header
-    if (!userId) {
-        return res.status(401).json({ error: 'Unauthorized' });
-    }
-    req.userId = userId;
-    next();
-};
+// Debug route to verify the router is working
+router.get("/test", (req, res) => {
+  res.json({ message: "Chat routes are working" });
+});
 
 // Routes
-router.post('/create', verifyUser, createChat);
-router.get('/my-chats', verifyUser, getUserChats);
-router.get('/:chatId/messages', verifyUser, getChatMessages);
+router.post("/create", auth, createChat);
+router.get("/my-chats", auth, getUserChats);
+router.get("/:chatId/messages", auth, getChatMessages);
 
 module.exports = router;

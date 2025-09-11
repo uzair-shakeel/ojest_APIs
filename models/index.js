@@ -1,12 +1,70 @@
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
 // User Schema Definition
 const userSchema = new mongoose.Schema(
   {
-    clerkUserId: {
+    // Custom authentication fields
+    email: {
       type: String,
-      required: true,
+      required: function () {
+        return !this.phoneNumber; // Email is required if no phone number
+      },
       unique: true,
+      sparse: true,
+      lowercase: true,
+      trim: true,
+      match: [
+        /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
+        "Please enter a valid email address",
+      ],
+    },
+    phoneNumber: {
+      type: String,
+      required: function () {
+        return !this.email; // Phone number is required if no email
+      },
+      unique: true,
+      sparse: true,
+      trim: true,
+    },
+    password: {
+      type: String,
+      required: function () {
+        return this.authProvider === "local";
+      },
+      minlength: 6,
+    },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    isPhoneVerified: {
+      type: Boolean,
+      default: false,
+    },
+    emailVerificationToken: {
+      type: String,
+    },
+    phoneVerificationOTP: {
+      type: String,
+    },
+    otpExpiry: {
+      type: Date,
+    },
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    authProvider: {
+      type: String,
+      enum: ["local", "google", "facebook"],
+      default: "local",
+    },
+    profilePicture: {
+      type: String,
+      default: "",
     },
     firstName: {
       type: String,
@@ -17,17 +75,6 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: "",
-    },
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-      lowercase: true,
-      trim: true,
-      match: [
-        /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
-        "Please enter a valid email address",
-      ],
     },
     socialMedia: {
       instagram: { type: String, default: "" },
@@ -67,17 +114,88 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ["private", "company"],
       default: "private",
-      required: true,
+    },
+    brands: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: function (v) {
+          // Only validate brands if the seller type is 'company'
+          return this.sellerType !== "company" || (v && v.length > 0);
+        },
+        message: "Company sellers must have at least one brand",
+      },
     },
     blocked: {
       type: Boolean,
       default: false,
+    },
+    approvalStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    approvedAt: {
+      type: Date,
+    },
+    rejectionReason: {
+      type: String,
+      trim: true,
+      default: "",
     },
   },
   {
     timestamps: true,
   }
 );
+
+// Hash password before saving
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password") || this.authProvider !== "local")
+    return next();
+
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Method to compare password
+userSchema.methods.comparePassword = async function (candidatePassword) {
+  // Check if user has a password and if candidate password is provided
+  if (!this.password || !candidatePassword) {
+    return false;
+  }
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Method to generate OTP
+userSchema.methods.generateOTP = function () {
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  this.phoneVerificationOTP = otp;
+  this.otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+  return otp;
+};
+
+// Method to verify OTP
+userSchema.methods.verifyOTP = function (otp) {
+  if (!this.phoneVerificationOTP || !this.otpExpiry) {
+    return false;
+  }
+
+  if (new Date() > this.otpExpiry) {
+    return false;
+  }
+
+  return this.phoneVerificationOTP === otp;
+};
 
 // Message Schema
 const messageSchema = new mongoose.Schema({
@@ -311,16 +429,143 @@ const carSchema = new mongoose.Schema(
   }
 );
 
+// Buyer Request Schema
+const buyerRequestSchema = new mongoose.Schema(
+  {
+    buyerId: {
+      type: String,
+      required: true,
+      ref: "User",
+    },
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    make: {
+      type: String,
+      trim: true,
+    },
+    model: {
+      type: String,
+      trim: true,
+    },
+    type: {
+      type: String,
+      trim: true,
+    },
+    budgetMin: {
+      type: Number,
+      trim: true,
+    },
+    budgetMax: {
+      type: Number,
+      required: true,
+      trim: true,
+    },
+    preferredCondition: {
+      type: String,
+      enum: ["New", "Used", "Demo", "Slightly Used", "Any"],
+      default: "Any",
+    },
+    location: {
+      type: { type: String, default: "Point" },
+      coordinates: { type: [Number], default: [21.01178, 52.22977] },
+    },
+    preferredFeatures: {
+      type: [String],
+      default: [],
+    },
+    status: {
+      type: String,
+      enum: ["Active", "Fulfilled", "Expired", "Cancelled"],
+      default: "Active",
+    },
+    expiryDate: {
+      type: Date,
+      default: () => new Date(+new Date() + 30 * 24 * 60 * 60 * 1000), // 30 days from creation
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+// Seller Offer Schema
+const sellerOfferSchema = new mongoose.Schema(
+  {
+    requestId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+    },
+    sellerId: {
+      type: String,
+      required: true,
+    },
+    carId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Car",
+    },
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    price: {
+      type: Number,
+      required: true,
+    },
+    images: {
+      type: [String],
+      default: [],
+    },
+    status: {
+      type: String,
+      enum: ["Pending", "Accepted", "Rejected", "Expired"],
+      default: "Pending",
+    },
+    expiryDate: {
+      type: Date,
+      default: () => new Date(+new Date() + 7 * 24 * 60 * 60 * 1000), // 7 days from creation
+    },
+    isCustomOffer: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
 // Create models only if they haven't been compiled yet
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 const Message =
   mongoose.models.Message || mongoose.model("Message", messageSchema);
 const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
 const Car = mongoose.models.Car || mongoose.model("Car", carSchema);
+const BuyerRequest =
+  mongoose.models.BuyerRequest ||
+  mongoose.model("BuyerRequest", buyerRequestSchema);
+const SellerOffer =
+  mongoose.models.SellerOffer ||
+  mongoose.model("SellerOffer", sellerOfferSchema);
 
 module.exports = {
   User,
   Message,
   Chat,
   Car,
+  BuyerRequest,
+  SellerOffer,
 };

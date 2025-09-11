@@ -3,10 +3,17 @@ const { Chat, Message, User, Car } = require("../models");
 // Create a new chat
 exports.createChat = async (req, res) => {
   const { carId, ownerId } = req.body;
-  const buyerId = req.userId; // From verifyUser middleware
+  const buyerId = req.userId; // From custom auth middleware
 
   try {
-    const user = await User.findOne({ clerkUserId: buyerId });
+    console.log("[DEBUG] Incoming createChat body:", req.body);
+    console.log("[DEBUG] buyerId:", buyerId);
+
+    if (!buyerId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const user = await User.findById(buyerId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -16,11 +23,24 @@ exports.createChat = async (req, res) => {
 
     const car = await Car.findById(carId);
     if (!car) {
+      console.error(`[DEBUG] Car not found for carId: ${carId}`);
       return res.status(404).json({ message: "Car not found" });
     }
-    if (car.createdBy !== ownerId) {
-      return res.status(400).json({ message: "Invalid owner for this car" });
+    const carCreatedByStr = String(car.createdBy);
+    const ownerIdStr = String(ownerId);
+    console.log(
+      `[DEBUG] carId: ${carId}, ownerId: ${ownerIdStr}, car.createdBy: ${carCreatedByStr}`
+    );
+    if (carCreatedByStr !== ownerIdStr) {
+      console.error(
+        `[DEBUG] Owner mismatch: car.createdBy (${carCreatedByStr}) !== ownerId (${ownerIdStr})`
+      );
+      return res.status(400).json({
+        message: `Invalid owner for this car. car.createdBy=${carCreatedByStr}, ownerId=${ownerIdStr}`,
+      });
     }
+    console.log("[DEBUG] Full car object:", car);
+    console.log("[DEBUG] car.createdBy:", car.createdBy, "ownerId:", ownerId);
 
     let chat = await Chat.findOne({
       carId,
@@ -53,7 +73,13 @@ exports.getUserChats = async (req, res) => {
   const userId = req.userId;
 
   try {
-    const user = await User.findOne({ clerkUserId: userId });
+    console.log("[DEBUG] getUserChats - userId:", userId);
+
+    if (!userId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -70,58 +96,32 @@ exports.getUserChats = async (req, res) => {
 
     // Find all users corresponding to the participants
     const users = await User.find({
-      clerkUserId: { $in: participantIds },
+      _id: { $in: participantIds },
     });
 
-    // Convert users array to a map for easy lookup
+    // Create a map of user data
     const userMap = {};
     users.forEach((user) => {
-      userMap[user.clerkUserId] = user;
+      userMap[user._id.toString()] = user;
     });
 
-    // Format response with enhanced chat data
-    const enhancedChats = chats.map((chat) => {
+    // Add user data to each chat
+    const chatsWithUsers = chats.map((chat) => {
       const chatObj = chat.toObject();
-
-      // Add participant names
-      chatObj.participantData = chat.participants.map((participantId) => {
-        const participantUser = userMap[participantId];
+      chatObj.participants = chat.participants.map((participantId) => {
+        const user = userMap[participantId];
         return {
-          userId: participantId,
-          name: participantUser
-            ? `${participantUser.firstName} ${participantUser.lastName}`
-            : "Unknown User",
-          profilePicture: participantUser?.profilePicture || null,
-          isCurrentUser: participantId === userId,
+          id: participantId,
+          firstName: user?.firstName || "",
+          lastName: user?.lastName || "",
+          email: user?.email || "",
+          image: user?.image || "",
         };
       });
-
-      // Get unread count for this user
-      chatObj.unreadCount = chat.unreadCounts
-        ? chat.unreadCounts.get(userId) || 0
-        : 0;
-
-      // Format last message
-      if (chatObj.lastMessage) {
-        const senderUser = userMap[chatObj.lastMessage.sender];
-        chatObj.lastMessage.senderName = senderUser
-          ? `${senderUser.firstName} ${senderUser.lastName}`
-          : "Unknown User";
-      }
-
       return chatObj;
     });
 
-    // Calculate total unread messages
-    const totalUnread = enhancedChats.reduce(
-      (sum, chat) => sum + (chat.unreadCount || 0),
-      0
-    );
-
-    res.json({
-      chats: enhancedChats,
-      totalUnread,
-    });
+    res.json(chatsWithUsers);
   } catch (err) {
     console.error("Get User Chats Error:", err);
     res.status(500).json({ message: "Server error", error: err.message });
@@ -134,6 +134,12 @@ exports.getChatMessages = async (req, res) => {
   const userId = req.userId;
 
   try {
+    console.log("[DEBUG] getChatMessages - userId:", userId);
+
+    if (!userId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
     const chat = await Chat.findById(chatId).populate("carId");
     if (!chat) {
       return res.status(404).json({ message: "Chat not found" });
@@ -152,12 +158,12 @@ exports.getChatMessages = async (req, res) => {
     );
 
     const users = await User.find({
-      clerkUserId: { $in: senderIds },
+      _id: { $in: senderIds },
     });
 
     const userMap = {};
     users.forEach((user) => {
-      userMap[user.clerkUserId] = user;
+      userMap[user._id.toString()] = user;
     });
 
     // Add sender information to each message

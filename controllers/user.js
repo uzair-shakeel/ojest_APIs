@@ -1,355 +1,690 @@
 // backend/controllers/userController.js
 const { User } = require("../models");
-const { clerkClient } = require("@clerk/clerk-sdk-node");
-// const clerk = new ClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 
-// New syncUser function
-exports.syncUser = async (req, res) => {
-  try {
-    const { user } = req.body;
-    console.log(user);
-    const userId = user.id;
-
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    console.log(userId);
-
-    // Fetch user from Clerk
-    const clerkUser = await clerkClient.users.getUser(userId);
-    console.log("hhhhhhhhhhh", clerkUser);
-
-    // Check if user already exists
-    const existingUser = await User.findOne({ clerkUserId: userId });
-    if (existingUser) {
-      return res.status(400).json({ error: "User already exists" });
-    }
-
-    // Extract email from Clerk's emailAddresses
-    const email = clerkUser.emailAddresses.find(
-      (e) => e.id === clerkUser.primaryEmailAddressId
-    )?.emailAddress;
-
-    if (!email) {
-      return res.status(400).json({ error: "Email not found for user" });
-    }
-
-    // Create new user in MongoDB
-    const newUser = new User({
-      clerkUserId: userId,
-      email,
-      firstName: clerkUser.firstName || "",
-      lastName: clerkUser.lastName || "",
-      sellerType: "private", // Default as per your schema
-    });
-
-    await newUser.save();
-
-    console.log("User synced to MongoDB:", newUser);
-    res
-      .status(201)
-      .json({ message: "User synced successfully", user: newUser });
-  } catch (error) {
-    console.error("Error syncing user:", error.message);
-    res.status(500).json({ error: "Failed to sync user" });
-  }
-};
 // Get all users (Admin route)
 exports.getAllUsers = async (req, res) => {
   try {
-    const { userId } = req.auth;
-    const user = await User.findOne({ clerkUserId: userId });
+    const { userId } = req;
+    const user = await User.findById(userId);
     // if (!user || user.role !== 'admin') {
     //   return res.status(403).json({ message: 'Access denied. Admins only.' });
     // }
 
     const users = await User.find();
-    if (!users || users.length === 0) {
-      return res.status(404).json({ message: "No users found" });
-    }
-
-    res.status(200).json(users);
+    res.json(users);
   } catch (error) {
-    console.error("Get All Users Error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error("Error getting all users:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
-// Get user by Clerk userId (Public profile)
+// Get user by ID
 exports.getUserById = async (req, res) => {
   try {
-    const { id } = req.params; // This is now clerkUserId
-    const user = await User.findOne({ clerkUserId: id });
+    const { id } = req.params;
+    const { userId } = req;
+
+    // Users can only get their own profile or admin can get any profile
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "Authenticated user not found" });
+    }
+
+    // If requesting own profile, return it
+    if (id === userId || user.role === "admin") {
+      const targetUser = await User.findById(id).select("-password");
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Add both image fields for compatibility
+      const userData = targetUser.toObject();
+      userData.image = userData.image || userData.profilePicture;
+
+      return res.json(userData);
+    }
+
+    // If not admin and not requesting own profile, return 403
+    return res.status(403).json({ message: "Access denied" });
+  } catch (error) {
+    console.error("Error getting user by ID:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Get public user information (no authentication required)
+exports.getPublicUserInfo = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id).select(
+      "-password -email -phoneNumbers -socialMedia -approvalStatus -approvedBy -approvedAt -rejectionReason -role -isBlocked -createdAt -updatedAt"
+    );
+
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const clerkUser = await clerkClient.users.getUser(id);
-    const response = {
-      clerkUserId: user.clerkUserId,
+    // Return only public information
+    const publicUserData = {
+      _id: user._id,
       firstName: user.firstName,
       lastName: user.lastName,
-      email: user.email,
-      socialMedia: user.socialMedia,
-      phoneNumbers: user.phoneNumbers,
-      location: user.location,
-      image: user.image,
-      description: user.description,
       companyName: user.companyName,
-      role: user.role,
+      description: user.description,
       sellerType: user.sellerType,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-      clerkData: {
-        profileImage: clerkUser.profileImageUrl || user.image,
-      },
+      brands: user.brands,
+      image: user.image || user.profilePicture,
+      location: user.location,
+      rating: user.rating,
+      totalSales: user.totalSales,
+      memberSince: user.createdAt,
     };
 
-    res.status(200).json(response);
+    res.json(publicUserData);
   } catch (error) {
-    console.error("Get User By ID Error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error("Error getting public user info:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
-// Update user profile (Normal user)
+// Update user profile
 exports.updateProfile = async (req, res) => {
   try {
-    const { userId } = req.auth;
-    const user = await User.findOne({ clerkUserId: userId });
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-    if (user.blocked) {
-      return res.status(403).json({ message: "Account is blocked" });
-    }
+    const { userId } = req;
+    let updateData = { ...req.body };
 
-    const {
-      sellerType,
-      socialMedia,
-      phoneNumbers,
-      location,
-      description,
-      companyName,
-    } = req.body;
+    console.log("Raw update data:", req.body);
 
-    if (sellerType && !["private", "company"].includes(sellerType)) {
-      return res
-        .status(400)
-        .json({ error: 'Invalid sellerType. Must be "private" or "company".' });
-    }
-
-    const updateData = {};
-    if (sellerType) updateData.sellerType = sellerType;
-    if (socialMedia) updateData.socialMedia = socialMedia;
-    if (phoneNumbers) updateData.phoneNumbers = phoneNumbers;
-    if (description) updateData.description = description;
-    if (companyName) updateData.companyName = companyName;
-    if (req.file) updateData.image = req.file.cloudinaryUrl;
-
-    // Validate location
-    if (location) {
-      const parsedLocation =
-        typeof location === "string" ? JSON.parse(location) : location;
-      if (
-        parsedLocation.type === "Point" &&
-        Array.isArray(parsedLocation.coordinates) &&
-        parsedLocation.coordinates.length === 2 &&
-        typeof parsedLocation.coordinates[1] === "number" &&
-        typeof parsedLocation.coordinates[0] === "number" &&
-        !isNaN(parsedLocation.coordinates[1]) &&
-        !isNaN(parsedLocation.coordinates[0])
-      ) {
-        updateData.location = {
-          type: "Point",
-          coordinates: parsedLocation.coordinates,
-        };
-      } else {
-        return res.status(400).json({
-          error:
-            'Invalid location. Must be an object { type: "Point", coordinates: [longitude, latitude] }.',
-        });
+    // Parse JSON fields that might be stringified
+    if (typeof updateData.socialMedia === "string") {
+      try {
+        updateData.socialMedia = JSON.parse(updateData.socialMedia);
+      } catch (e) {
+        console.error("Error parsing socialMedia:", e);
       }
     }
 
-    updateData.updatedAt = new Date();
-
-    const updatedUser = await User.findOneAndUpdate(
-      { clerkUserId: userId },
-      { $set: updateData },
-      { new: true }
-    );
-
-    // Update Clerk's public_metadata
-    const metadata = {
-      sellerType: updatedUser.sellerType,
-      phoneNumbers: updatedUser.phoneNumbers,
-      socialMedia: updatedUser.socialMedia,
-      location: updatedUser.location,
-      description: updatedUser.description,
-      companyName: updatedUser.companyName,
-      role: updatedUser.role,
-    };
-    await clerkClient.users.updateUser(userId, { publicMetadata: metadata });
-
-    res.json(updatedUser);
-  } catch (error) {
-    console.error("Update Profile Error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
-};
-
-//update user seller type
-exports.updateSellerType = async (req, res) => {
-  try {
-    const { userId } = req.auth;
-    const { sellerType } = req.body;
-
-    if (!sellerType || !["private", "company"].includes(sellerType)) {
-      return res.status(400).json({ message: "Invalid seller type" });
+    if (typeof updateData.location === "string") {
+      try {
+        updateData.location = JSON.parse(updateData.location);
+      } catch (e) {
+        console.error("Error parsing location:", e);
+      }
     }
 
-    const user = await User.findOne({ clerkUserId: userId });
-    if (!user) {
+    // Handle phoneNumbers array
+    if (updateData.phoneNumbers) {
+      // If it's a string, try to parse it
+      if (typeof updateData.phoneNumbers === "string") {
+        try {
+          updateData.phoneNumbers = JSON.parse(updateData.phoneNumbers);
+        } catch (e) {
+          console.error("Error parsing phoneNumbers:", e);
+        }
+      }
+      // If it's an array of objects with phone property, extract phone values
+      if (Array.isArray(updateData.phoneNumbers)) {
+        updateData.phoneNumbers = updateData.phoneNumbers
+          .map((item) =>
+            typeof item === "object" && item.phone ? item.phone : item
+          )
+          .filter((phone) => phone && phone.trim() !== "");
+      }
+    }
+
+    // Handle brands array
+    if (updateData.brands) {
+      if (typeof updateData.brands === "string") {
+        try {
+          updateData.brands = JSON.parse(updateData.brands);
+        } catch (e) {
+          console.error("Error parsing brands:", e);
+        }
+      }
+    }
+
+    console.log("Processed update data:", updateData);
+
+    // Remove sensitive fields that shouldn't be updated directly
+    delete updateData.password;
+    delete updateData.email;
+    delete updateData.phoneNumber;
+    delete updateData.role;
+    delete updateData.blocked;
+
+    // Add image if uploaded
+    if (req.file) {
+      updateData.image = req.file.path;
+      updateData.profilePicture = req.file.path; // Update both fields
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
+      new: true,
+      runValidators: true,
+    }).select("-password");
+
+    if (!updatedUser) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    user.sellerType = sellerType;
-    await user.save();
+    // Add both image fields for compatibility
+    const userData = updatedUser.toObject();
+    userData.image = userData.image || userData.profilePicture;
 
-    // Update Clerk's public_metadata
-    const metadata = {
-      sellerType: user.sellerType,
-    };
-    await clerkClient.users.updateUser(userId, { publicMetadata: metadata });
-
-    res.json(user);
+    res.json({
+      message: "Profile updated successfully",
+      user: userData,
+    });
   } catch (error) {
-    console.error("Update Seller Type Error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error("Error updating profile:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
-// New function for SellerDetailsPage
+
+// Update user profile custom (for onboarding)
 exports.updateProfileCustom = async (req, res) => {
   try {
-    const { userId } = req.auth;
-    const user = await User.findOne({ clerkUserId: userId });
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-    if (user.blocked) {
-      return res.status(403).json({ message: "Account is blocked" });
-    }
+    const { userId } = req;
+    let updateData = { ...req.body };
 
-    const {
-      firstName,
-      lastName,
-      email,
-      companyName,
-      phoneNumbers,
-      description,
-      socialMedia,
-      sellerType,
-    } = req.body;
-
-    // Validate sellerType
-    if (sellerType && !["private", "company"].includes(sellerType)) {
-      return res
-        .status(400)
-        .json({ error: 'Invalid sellerType. Must be "private" or "company".' });
-    }
-
-    // Validate phoneNumbers format
-    if (phoneNumbers) {
-      const parsedPhoneNumbers =
-        typeof phoneNumbers === "string"
-          ? JSON.parse(phoneNumbers)
-          : phoneNumbers;
-      if (
-        !Array.isArray(parsedPhoneNumbers) ||
-        !parsedPhoneNumbers.every((p) => p.phone && typeof p.phone === "string")
-      ) {
-        return res.status(400).json({
-          error:
-            "Invalid phoneNumbers. Must be an array of objects with 'phone' property.",
-        });
-      }
-    }
-
-    // Validate socialMedia format
-    if (socialMedia) {
-      const parsedSocialMedia =
-        typeof socialMedia === "string" ? JSON.parse(socialMedia) : socialMedia;
-      if (
-        !parsedSocialMedia ||
-        typeof parsedSocialMedia !== "object" ||
-        !["instagram", "facebook", "twitter", "website", "linkedin"].every(
-          (key) =>
-            typeof parsedSocialMedia[key] === "string" ||
-            parsedSocialMedia[key] === undefined
-        )
-      ) {
-        return res.status(400).json({
-          error:
-            "Invalid socialMedia. Must be an object with optional keys: instagram, facebook, twitter, website, linkedin.",
-        });
-      }
-    }
-
-    const updateData = {};
-    if (firstName) updateData.firstName = firstName;
-    if (lastName) updateData.lastName = lastName;
-    if (email) updateData.email = email; // Update email if provided
-    if (companyName) updateData.companyName = companyName;
-    if (phoneNumbers) updateData.phoneNumbers = phoneNumbers;
-    if (description) updateData.description = description;
-    if (socialMedia) updateData.socialMedia = socialMedia;
-    if (sellerType) updateData.sellerType = sellerType;
-    if (req.file) updateData.image = req.file.cloudinaryUrl;
-
-    updateData.updatedAt = new Date();
-
-    const updatedUser = await User.findOneAndUpdate(
-      { clerkUserId: userId },
-      { $set: updateData },
-      { new: true }
+    console.log("updateProfileCustom - Raw req.body:", req.body);
+    console.log("updateProfileCustom - userId:", userId);
+    console.log(
+      "updateProfileCustom - sellerType in body:",
+      req.body.sellerType
     );
 
-    // Update Clerk's public_metadata
-    const metadata = {
-      sellerType: updatedUser.sellerType,
-      phoneNumbers: updatedUser.phoneNumbers,
-      socialMedia: updatedUser.socialMedia,
-      description: updatedUser.description,
-      companyName: updatedUser.companyName,
-      role: updatedUser.role,
-    };
-    await clerkClient.users.updateUser(userId, { publicMetadata: metadata });
+    // Parse JSON fields that might be stringified
+    if (typeof updateData.socialMedia === "string") {
+      try {
+        updateData.socialMedia = JSON.parse(updateData.socialMedia);
+      } catch (e) {
+        console.error("Error parsing socialMedia (custom):", e);
+      }
+    }
 
-    res.json(updatedUser);
+    if (typeof updateData.location === "string") {
+      try {
+        updateData.location = JSON.parse(updateData.location);
+      } catch (e) {
+        console.error("Error parsing location (custom):", e);
+      }
+    }
+
+    if (typeof updateData.phoneNumbers === "string") {
+      try {
+        updateData.phoneNumbers = JSON.parse(updateData.phoneNumbers);
+      } catch (e) {
+        console.error("Error parsing phoneNumbers (custom):", e);
+      }
+    }
+    if (Array.isArray(updateData.phoneNumbers)) {
+      updateData.phoneNumbers = updateData.phoneNumbers
+        .map((item) =>
+          typeof item === "object" && item.phone ? item.phone : item
+        )
+        .filter((phone) => phone && String(phone).trim() !== "");
+    }
+
+    if (typeof updateData.brands === "string") {
+      try {
+        updateData.brands = JSON.parse(updateData.brands);
+      } catch (e) {
+        console.error("Error parsing brands (custom):", e);
+      }
+    }
+
+    // Remove sensitive fields that shouldn't be updated directly
+    delete updateData.password;
+    delete updateData.role;
+    delete updateData.blocked;
+
+    console.log("updateProfileCustom - Final updateData:", updateData);
+
+    // Add image if uploaded
+    if (req.file) {
+      updateData.image = req.file.path;
+      updateData.profilePicture = req.file.path; // Update both fields
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
+      new: true,
+      runValidators: true,
+    }).select("-password");
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Add both image fields for compatibility
+    const userData = updatedUser.toObject();
+    userData.image = userData.image || userData.profilePicture;
+
+    res.json({
+      message: "Profile updated successfully",
+      user: userData,
+    });
   } catch (error) {
-    console.error("Update Profile Custom Error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error("Error updating profile:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
+
+// Update seller type
+exports.updateSellerType = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sellerType, brands } = req.body;
+
+    const updateData = { sellerType };
+    if (brands) {
+      updateData.brands = brands;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    }).select("-password");
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      message: "Seller type updated successfully",
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error("Error updating seller type:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 // Delete user account
 exports.deleteAccount = async (req, res) => {
   try {
-    const { userId } = req.auth;
+    const { userId } = req;
 
-    // Delete user from MongoDB
-    const user = await User.findOneAndDelete({ clerkUserId: userId });
+    const deletedUser = await User.findByIdAndDelete(userId);
+
+    if (!deletedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({ message: "Account deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting account:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Admin functions
+exports.getUserStats = async (req, res) => {
+  try {
+    const totalUsers = await User.countDocuments();
+    const privateSellers = await User.countDocuments({ sellerType: "private" });
+    const companySellers = await User.countDocuments({ sellerType: "company" });
+    const blockedUsers = await User.countDocuments({ blocked: true });
+    const pendingUsers = await User.countDocuments({
+      approvalStatus: "pending",
+    });
+    const approvedUsers = await User.countDocuments({
+      approvalStatus: "approved",
+    });
+    const rejectedUsers = await User.countDocuments({
+      approvalStatus: "rejected",
+    });
+
+    res.json({
+      totalUsers,
+      privateSellers,
+      companySellers,
+      blockedUsers,
+      pendingUsers,
+      approvedUsers,
+      rejectedUsers,
+    });
+  } catch (error) {
+    console.error("Error getting user stats:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.getAllUsersForAdmin = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      role = "",
+      sellerType = "",
+      blocked = "",
+      approvalStatus = "",
+    } = req.query;
+
+    const query = {};
+
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: "i" } },
+        { lastName: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { phoneNumber: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    if (role) {
+      query.role = role;
+    }
+
+    if (sellerType) {
+      query.sellerType = sellerType;
+    }
+
+    if (blocked !== "") {
+      query.blocked = blocked === "true";
+    }
+
+    if (approvalStatus) {
+      query.approvalStatus = approvalStatus;
+    }
+
+    const users = await User.find(query)
+      .select("-password")
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await User.countDocuments(query);
+
+    res.json({
+      users,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total,
+    });
+  } catch (error) {
+    console.error("Error getting users for admin:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.toggleUserBlock = async (req, res) => {
+  try {
+    const { targetUserId } = req.params;
+
+    const user = await User.findById(targetUserId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Delete user from Clerk
-    await clerkClient.users.deleteUser(userId);
+    user.blocked = !user.blocked;
+    await user.save();
 
-    res.json({ message: "Account deleted successfully" });
+    res.json({
+      message: `User ${user.blocked ? "blocked" : "unblocked"} successfully`,
+      user: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        blocked: user.blocked,
+      },
+    });
   } catch (error) {
-    console.error("Delete Account Error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error("Error toggling user block:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.changeUserRole = async (req, res) => {
+  try {
+    const { targetUserId } = req.params;
+    const { role } = req.body;
+
+    if (!["user", "admin"].includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      targetUserId,
+      { role },
+      { new: true }
+    ).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      message: "User role updated successfully",
+      user,
+    });
+  } catch (error) {
+    console.error("Error changing user role:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.deleteUser = async (req, res) => {
+  try {
+    const { targetUserId } = req.params;
+
+    const deletedUser = await User.findByIdAndDelete(targetUserId);
+
+    if (!deletedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({ message: "User deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Approve user registration
+exports.approveUser = async (req, res) => {
+  console.log("approveUser - req.body:", req.body);
+  try {
+    const { targetUserId } = req.params;
+    const { userId } = req;
+
+    console.log("approveUser - targetUserId:", targetUserId);
+    console.log("approveUser - userId:", userId);
+
+    // Check if admin is approving
+    const adminUser = await User.findById(userId);
+    if (!adminUser || adminUser.role !== "admin") {
+      return res.status(403).json({ message: "Access denied. Admins only." });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      targetUserId,
+      {
+        approvalStatus: "approved",
+        approvedBy: userId,
+        approvedAt: new Date(),
+      },
+      { new: true }
+    ).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      message: "User approved successfully",
+      user,
+    });
+  } catch (error) {
+    console.error("Error approving user:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Reject user registration
+exports.rejectUser = async (req, res) => {
+  try {
+    const { targetUserId } = req.params;
+    const { rejectionReason } = req.body;
+    const { userId } = req;
+
+    // Check if admin is rejecting
+    const adminUser = await User.findById(userId);
+    if (!adminUser || adminUser.role !== "admin") {
+      return res.status(403).json({ message: "Access denied. Admins only." });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      targetUserId,
+      {
+        approvalStatus: "rejected",
+        rejectionReason: rejectionReason || "No reason provided",
+        approvedBy: userId,
+        approvedAt: new Date(),
+      },
+      { new: true }
+    ).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      message: "User rejected successfully",
+      user,
+    });
+  } catch (error) {
+    console.error("Error rejecting user:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Get user approval statistics
+exports.getUserApprovalStats = async (req, res) => {
+  try {
+    const { userId } = req;
+
+    // Check if admin
+    const adminUser = await User.findById(userId);
+    if (!adminUser || adminUser.role !== "admin") {
+      return res.status(403).json({ message: "Access denied. Admins only." });
+    }
+
+    const stats = await User.aggregate([
+      {
+        $group: {
+          _id: "$approvalStatus",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const formattedStats = {
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+      total: 0,
+    };
+
+    stats.forEach((stat) => {
+      formattedStats[stat._id] = stat.count;
+      formattedStats.total += stat.count;
+    });
+
+    res.json(formattedStats);
+  } catch (error) {
+    console.error("Error getting user approval stats:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Simple approval status update - NO AUTH REQUIRED for testing
+exports.updateUserApprovalStatus = async (req, res) => {
+  // Add a simple test log to see if the function is even being called
+  console.log("🎯 FUNCTION CALLED: updateUserApprovalStatus");
+  console.log("⏰ Timestamp:", new Date().toISOString());
+  try {
+    console.log("🚀 === APPROVAL STATUS UPDATE STARTED ===");
+    console.log("📝 Request body:", req.body);
+    console.log("🔗 Request params:", req.params);
+    console.log("📧 Request headers:", req.headers);
+
+    const { userId } = req.params;
+    const { status } = req.body;
+
+    console.log("🎯 Extracted data:", { userId, status });
+
+    // Validate status
+    console.log("✅ Status validation:", status);
+    if (!["pending", "approved", "rejected"].includes(status)) {
+      console.log("❌ Invalid status:", status);
+      return res.status(400).json({
+        message: "Invalid status. Must be: pending, approved, or rejected",
+      });
+    }
+    console.log("✅ Status is valid:", status);
+
+    // Update user status
+    console.log("🔄 Attempting to update user in database...");
+    console.log("🔍 Looking for user with ID:", userId);
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        approvalStatus: status,
+        updatedAt: new Date(),
+      },
+      { new: true }
+    ).select("-password");
+
+    console.log(
+      "📊 Database update result:",
+      user ? "User found and updated" : "User not found"
+    );
+
+    if (!user) {
+      console.log("❌ User not found with ID:", userId);
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    console.log(
+      "✅ User status updated successfully:",
+      user.email,
+      "->",
+      status
+    );
+    console.log("👤 Updated user details:", {
+      id: user._id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      approvalStatus: user.approvalStatus,
+    });
+
+    console.log("📤 Sending success response...");
+    res.json({
+      message: "User approval status updated successfully",
+      user: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        approvalStatus: user.approvalStatus,
+      },
+    });
+    console.log("✅ === APPROVAL STATUS UPDATE COMPLETED SUCCESSFULLY ===");
+  } catch (error) {
+    console.error("❌ === APPROVAL STATUS UPDATE FAILED ===");
+    console.error("🚨 Error details:", error);
+    console.error("📋 Error message:", error.message);
+    console.error("🔍 Error stack:", error.stack);
+    res.status(500).json({
+      message: "Server error",
+      error: error.message,
+      details: "Check server console for more information",
+    });
   }
 };
