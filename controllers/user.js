@@ -688,3 +688,215 @@ exports.updateUserApprovalStatus = async (req, res) => {
     });
   }
 };
+
+// Admin endpoints
+
+// Get user statistics for admin dashboard
+exports.getUserStats = async (req, res) => {
+  try {
+    // Remove admin check for now - direct access
+
+    // Total users
+    const totalUsers = await User.countDocuments();
+
+    // Active users (not blocked)
+    const activeUsers = await User.countDocuments({ blocked: false });
+
+    // Blocked users
+    const blockedUsers = await User.countDocuments({ blocked: true });
+
+    // Users by seller type
+    const usersBySellerType = await User.aggregate([
+      {
+        $group: {
+          _id: "$sellerType",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Users by role
+    const usersByRole = await User.aggregate([
+      {
+        $group: {
+          _id: "$role",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // New users per month (last 12 months)
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+
+    const newUsersPerMonth = await User.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: twelveMonthsAgo },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { "_id.year": 1, "_id.month": 1 },
+      },
+    ]);
+
+    res.json({
+      totalUsers,
+      activeUsers,
+      blockedUsers,
+      usersBySellerType,
+      usersByRole,
+      newUsersPerMonth,
+    });
+  } catch (error) {
+    console.error("Error getting user stats:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Get all users for admin with pagination and filtering
+exports.getAllUsersForAdmin = async (req, res) => {
+  try {
+    // Remove admin check for now - direct access
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Build filter
+    const filter = {};
+    if (req.query.role) filter.role = req.query.role;
+    if (req.query.sellerType) filter.sellerType = req.query.sellerType;
+    if (req.query.blocked !== undefined)
+      filter.blocked = req.query.blocked === "true";
+    if (req.query.search) {
+      filter.$or = [
+        { firstName: { $regex: req.query.search, $options: "i" } },
+        { lastName: { $regex: req.query.search, $options: "i" } },
+        { email: { $regex: req.query.search, $options: "i" } },
+        { companyName: { $regex: req.query.search, $options: "i" } },
+      ];
+    }
+
+    const users = await User.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .select("-__v");
+
+    const totalUsers = await User.countDocuments(filter);
+    const totalPages = Math.ceil(totalUsers / limit);
+
+    res.json({
+      users,
+      currentPage: page,
+      totalPages,
+      totalUsers,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    });
+  } catch (error) {
+    console.error("Error getting users for admin:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Admin function to block/unblock user
+exports.toggleUserBlock = async (req, res) => {
+  try {
+    const { targetUserId } = req.params;
+
+    // Remove admin check for now - direct access
+
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Don't allow blocking other admins
+    if (targetUser.role === "admin") {
+      return res.status(403).json({ message: "Cannot block admin users" });
+    }
+
+    targetUser.blocked = !targetUser.blocked;
+    await targetUser.save();
+
+    res.json({
+      message: `User ${
+        targetUser.blocked ? "blocked" : "unblocked"
+      } successfully`,
+      user: targetUser,
+    });
+  } catch (error) {
+    console.error("Error toggling user block:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Admin function to change user role
+exports.changeUserRole = async (req, res) => {
+  try {
+    const { targetUserId } = req.params;
+    const { role } = req.body;
+
+    // Remove admin check for now - direct access
+
+    if (!["user", "admin"].includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
+
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    targetUser.role = role;
+    await targetUser.save();
+
+    res.json({
+      message: "User role updated successfully",
+      user: targetUser,
+    });
+  } catch (error) {
+    console.error("Error changing user role:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Admin function to delete user
+exports.deleteUser = async (req, res) => {
+  try {
+    const { targetUserId } = req.params;
+
+    // Remove admin check for now - direct access
+
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Don't allow deleting other admins
+    if (targetUser.role === "admin") {
+      return res.status(403).json({ message: "Cannot delete admin users" });
+    }
+
+    // Delete user from database
+    await User.findByIdAndDelete(targetUserId);
+
+    res.json({
+      message: "User deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};

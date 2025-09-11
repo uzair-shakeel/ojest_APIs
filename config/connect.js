@@ -12,7 +12,7 @@ const mongoOptions = {
 
 // Create a connection promise
 const connectDB = mongoose
-  .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/ojest", mongoOptions)
+  .connect(process.env.MONGODB_URI, mongoOptions)
   .then(() => {
     console.log("Connected to MongoDB successfully");
   })

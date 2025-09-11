@@ -70,7 +70,7 @@ exports.createChat = async (req, res) => {
 
 // Get all chats for a user
 exports.getUserChats = async (req, res) => {
-  const userId = req.userId;
+  const userId = req.auth?.userId;
 
   try {
     console.log("[DEBUG] getUserChats - userId:", userId);
@@ -131,7 +131,7 @@ exports.getUserChats = async (req, res) => {
 // Get messages for a chat
 exports.getChatMessages = async (req, res) => {
   const { chatId } = req.params;
-  const userId = req.userId;
+  const userId = req.auth?.userId;
 
   try {
     console.log("[DEBUG] getChatMessages - userId:", userId);
