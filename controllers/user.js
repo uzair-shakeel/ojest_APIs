@@ -93,15 +93,29 @@ exports.updateProfile = async (req, res) => {
   try {
     const { userId } = req;
     let updateData = { ...req.body };
-
-    console.log("Raw update data:", req.body);
+    console.log("[updateProfile] ▶ start");
+    console.log("[updateProfile] headers:", {
+      contentType: req.headers["content-type"],
+      auth: req.headers["authorization"] ? "present" : "missing",
+    });
+    console.log("[updateProfile] userId:", userId);
+    console.log("[updateProfile] has req.file:", !!req.file);
+    console.log("[updateProfile] has req.files:", Array.isArray(req.files) ? req.files.length : 0);
+    if (req.file) {
+      console.log("[updateProfile] req.file keys:", Object.keys(req.file));
+      console.log("[updateProfile] req.file.path (after Cloudinary):", req.file.path);
+      console.log("[updateProfile] req.file.cloudinaryUrl:", req.file.cloudinaryUrl);
+      console.log("[updateProfile] req.file.mimetype:", req.file.mimetype);
+      console.log("[updateProfile] req.file.size:", req.file.size);
+    }
+    console.log("[updateProfile] Raw req.body:", req.body);
 
     // Parse JSON fields that might be stringified
     if (typeof updateData.socialMedia === "string") {
       try {
         updateData.socialMedia = JSON.parse(updateData.socialMedia);
       } catch (e) {
-        console.error("Error parsing socialMedia:", e);
+        console.error("[updateProfile] Error parsing socialMedia:", e?.message || e);
       }
     }
 
@@ -109,7 +123,7 @@ exports.updateProfile = async (req, res) => {
       try {
         updateData.location = JSON.parse(updateData.location);
       } catch (e) {
-        console.error("Error parsing location:", e);
+        console.error("[updateProfile] Error parsing location:", e?.message || e);
       }
     }
 
@@ -120,7 +134,7 @@ exports.updateProfile = async (req, res) => {
         try {
           updateData.phoneNumbers = JSON.parse(updateData.phoneNumbers);
         } catch (e) {
-          console.error("Error parsing phoneNumbers:", e);
+          console.error("[updateProfile] Error parsing phoneNumbers:", e?.message || e);
         }
       }
       // If it's an array of objects with phone property, extract phone values
@@ -139,12 +153,11 @@ exports.updateProfile = async (req, res) => {
         try {
           updateData.brands = JSON.parse(updateData.brands);
         } catch (e) {
-          console.error("Error parsing brands:", e);
+          console.error("[updateProfile] Error parsing brands:", e?.message || e);
         }
       }
     }
-
-    console.log("Processed update data:", updateData);
+    console.log("[updateProfile] Processed update data:", updateData);
 
     // Remove sensitive fields that shouldn't be updated directly
     delete updateData.password;
@@ -153,11 +166,33 @@ exports.updateProfile = async (req, res) => {
     delete updateData.role;
     delete updateData.blocked;
 
-    // Add image if uploaded
+    // Add image if uploaded (prefer Cloudinary URL)
     if (req.file) {
-      updateData.image = req.file.path;
-      updateData.profilePicture = req.file.path; // Update both fields
+      const secureUrl = req.file.cloudinaryUrl || req.file.path;
+      if (secureUrl) {
+        updateData.image = secureUrl;
+        updateData.profilePicture = secureUrl; // Update both fields
+        console.log("[updateProfile] Attached image secureUrl to updateData:", secureUrl);
+      } else {
+        console.warn("[updateProfile] File present but no secure URL/path found on req.file");
+      }
+    } else if (updateData.image || updateData.profilePicture) {
+      // Accept direct URL strings from body if provided
+      const directUrl = updateData.image || updateData.profilePicture;
+      if (typeof directUrl === "string" && /^https?:\/\//.test(directUrl)) {
+        updateData.image = directUrl;
+        updateData.profilePicture = directUrl;
+        console.log("[updateProfile] Using direct URL from body for image:", directUrl);
+      }
+    } else {
+      console.log("[updateProfile] No file provided - image fields will not change");
     }
+
+    console.log("[updateProfile] Updating user in DB with:", {
+      userId,
+      hasImage: !!updateData.image,
+      hasProfilePicture: !!updateData.profilePicture,
+    });
 
     const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
       new: true,
@@ -176,8 +211,10 @@ exports.updateProfile = async (req, res) => {
       message: "Profile updated successfully",
       user: userData,
     });
+    console.log("[updateProfile] ▶ success for user:", userData?._id || userId);
   } catch (error) {
-    console.error("Error updating profile:", error);
+    console.error("[updateProfile] ✖ error:", error?.message || error);
+    console.error("[updateProfile] stack:", error?.stack);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -187,20 +224,27 @@ exports.updateProfileCustom = async (req, res) => {
   try {
     const { userId } = req;
     let updateData = { ...req.body };
-
-    console.log("updateProfileCustom - Raw req.body:", req.body);
-    console.log("updateProfileCustom - userId:", userId);
-    console.log(
-      "updateProfileCustom - sellerType in body:",
-      req.body.sellerType
-    );
+    console.log("[updateProfileCustom] ▶ start");
+    console.log("[updateProfileCustom] headers:", {
+      contentType: req.headers["content-type"],
+      auth: req.headers["authorization"] ? "present" : "missing",
+    });
+    console.log("[updateProfileCustom] userId:", userId);
+    console.log("[updateProfileCustom] has req.file:", !!req.file);
+    console.log("[updateProfileCustom] has req.files:", Array.isArray(req.files) ? req.files.length : 0);
+    if (req.file) {
+      console.log("[updateProfileCustom] req.file.path (after Cloudinary):", req.file.path);
+      console.log("[updateProfileCustom] req.file.cloudinaryUrl:", req.file.cloudinaryUrl);
+    }
+    console.log("[updateProfileCustom] Raw req.body:", req.body);
+    console.log("[updateProfileCustom] sellerType in body:", req.body.sellerType);
 
     // Parse JSON fields that might be stringified
     if (typeof updateData.socialMedia === "string") {
       try {
         updateData.socialMedia = JSON.parse(updateData.socialMedia);
       } catch (e) {
-        console.error("Error parsing socialMedia (custom):", e);
+        console.error("[updateProfileCustom] Error parsing socialMedia:", e?.message || e);
       }
     }
 
@@ -208,7 +252,7 @@ exports.updateProfileCustom = async (req, res) => {
       try {
         updateData.location = JSON.parse(updateData.location);
       } catch (e) {
-        console.error("Error parsing location (custom):", e);
+        console.error("[updateProfileCustom] Error parsing location:", e?.message || e);
       }
     }
 
@@ -216,7 +260,7 @@ exports.updateProfileCustom = async (req, res) => {
       try {
         updateData.phoneNumbers = JSON.parse(updateData.phoneNumbers);
       } catch (e) {
-        console.error("Error parsing phoneNumbers (custom):", e);
+        console.error("[updateProfileCustom] Error parsing phoneNumbers:", e?.message || e);
       }
     }
     if (Array.isArray(updateData.phoneNumbers)) {
@@ -231,7 +275,7 @@ exports.updateProfileCustom = async (req, res) => {
       try {
         updateData.brands = JSON.parse(updateData.brands);
       } catch (e) {
-        console.error("Error parsing brands (custom):", e);
+        console.error("[updateProfileCustom] Error parsing brands:", e?.message || e);
       }
     }
 
@@ -240,12 +284,28 @@ exports.updateProfileCustom = async (req, res) => {
     delete updateData.role;
     delete updateData.blocked;
 
-    console.log("updateProfileCustom - Final updateData:", updateData);
+    console.log("[updateProfileCustom] Final updateData:", updateData);
 
-    // Add image if uploaded
+    // Add image if uploaded (prefer Cloudinary URL)
     if (req.file) {
-      updateData.image = req.file.path;
-      updateData.profilePicture = req.file.path; // Update both fields
+      const secureUrl = req.file.cloudinaryUrl || req.file.path;
+      if (secureUrl) {
+        updateData.image = secureUrl;
+        updateData.profilePicture = secureUrl; // Update both fields
+        console.log("[updateProfileCustom] Attached image secureUrl:", secureUrl);
+      } else {
+        console.warn("[updateProfileCustom] File present but no secure URL/path found on req.file");
+      }
+    } else if (updateData.image || updateData.profilePicture) {
+      // Accept direct URL strings from body if provided
+      const directUrl = updateData.image || updateData.profilePicture;
+      if (typeof directUrl === "string" && /^https?:\/\//.test(directUrl)) {
+        updateData.image = directUrl;
+        updateData.profilePicture = directUrl;
+        console.log("[updateProfileCustom] Using direct URL from body for image:", directUrl);
+      }
+    } else {
+      console.log("[updateProfileCustom] No file provided - image fields unchanged");
     }
 
     const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
