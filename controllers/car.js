@@ -48,6 +48,7 @@ exports.addCar = async (req, res) => {
       country,
       carCondition,
       financialInfo,
+      isFeatured,
     } = req.body;
 
     console.log("title:", title);
@@ -121,6 +122,9 @@ exports.addCar = async (req, res) => {
       priceNetto: parseFloat(fi.priceNetto),
     };
 
+    // Normalize isFeatured from multipart (string) or json
+    const isFeaturedBool = String(isFeatured).toLowerCase() === 'true';
+
     const car = new Car({
       createdBy: userId,
       title,
@@ -150,6 +154,7 @@ exports.addCar = async (req, res) => {
       },
       location: user.location,
       status: "Pending",
+      isFeatured: isFeaturedBool,
     });
 
     await car.save();
@@ -225,6 +230,7 @@ exports.updateCar = async (req, res) => {
       financialInfo,
       location,
       status,
+      isFeatured,
     } = req.body;
 
     const images =
@@ -269,6 +275,9 @@ exports.updateCar = async (req, res) => {
     if (vin) updateData.vin = vin;
     if (country) updateData.country = country;
     if (carCondition) updateData.carCondition = carCondition;
+    if (typeof isFeatured !== 'undefined') {
+      updateData.isFeatured = String(isFeatured).toLowerCase() === 'true';
+    }
     if (financialInfo) {
       // Process financialInfo to handle possible comma-separated strings
       const processedFinancialInfo = {
@@ -369,6 +378,16 @@ exports.getAllCars = async (req, res) => {
   try {
     const cars = await Car.find().populate("createdBy", "firstName lastName");
     res.status(200).json(cars); // Returns an array of cars
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get featured cars (Public)
+exports.getFeaturedCars = async (req, res) => {
+  try {
+    const cars = await Car.find({ isFeatured: true }).sort({ createdAt: -1 });
+    res.status(200).json(cars);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

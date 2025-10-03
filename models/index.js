@@ -430,6 +430,10 @@ const carSchema = new mongoose.Schema(
       enum: ["Pending", "Approved", "Rejected"],
       default: "Pending",
     },
+    isFeatured: {
+      type: Boolean,
+      default: false,
+    },
     createdBy: {
       type: String,
       required: true,
