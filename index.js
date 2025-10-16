@@ -92,6 +92,10 @@ app.get("/api/health", (req, res) => {
 });
 
 // Set Up Routes
+app.get("/", (req, res) => {
+  res.send("Backend is running successfully 🚀");
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/cars", carRoutes);
@@ -119,6 +123,8 @@ app.use((err, req, res, next) => {
 
 // Start the Server
 const PORT = process.env.PORT || 5000;
+
+
 
 // Start server only after MongoDB connection is established
 const startServer = async () => {
