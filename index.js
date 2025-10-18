@@ -22,14 +22,6 @@ const { connectDB } = require("./config/connect");
 const app = express();
 const server = http.createServer(app);
 
-const io = new Server(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
-});
-
 // Configure CORS to allow specific origins
 const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:3000",
@@ -43,6 +35,16 @@ const allowedOrigins = [
   "https://b7e6e2a7a0f3c7f3b3b0c7b8e0f6b7a6c2e.vercel.app",
   "https://ojest-sell-two.vercel.app",
 ];
+
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
+
+// Express CORS will share the same allowed origins
 
 app.use(
   cors({
