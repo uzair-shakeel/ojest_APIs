@@ -42,9 +42,10 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
     credentials: true,
   },
+  transports: ["websocket", "polling"],
+  path: "/socket.io/",
 });
 
-// Express CORS will share the same allowed origins
 
 app.use(
   cors({
