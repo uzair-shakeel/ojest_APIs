@@ -58,9 +58,10 @@ module.exports = (io) => {
           return;
         }
 
-        // Emit message to all participants
+        // Emit message to all participants (rooms are joined by string userId)
         chat.participants.forEach((participantId) => {
-          io.to(participantId).emit("newMessage", {
+          const roomId = String(participantId);
+          io.to(roomId).emit("newMessage", {
             chatId,
             message: {
               id: message._id,
