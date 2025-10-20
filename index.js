@@ -135,23 +135,23 @@ const startServer = async () => {
     // Wait for MongoDB connection
     await connectDB;
 
-    server.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-      console.log(
-        `API Documentation available at http://localhost:${PORT}/api`
-      );
-    });
+   server.listen(PORT, "127.0.0.1", () => {
+  console.log(`Server is running on port ${PORT}`);
+  console.log(`API Documentation available at http://localhost:${PORT}/api`);
+});
+
+    
   } catch (error) {
     console.error("Failed to start server:", error);
     // For development, start server even if MongoDB fails
     if (process.env.NODE_ENV === "development") {
       console.log("Starting server without MongoDB for development...");
-      server.listen(PORT, () => {
-        console.log(`Server is running on port ${PORT} (without MongoDB)`);
-        console.log(
-          `API Documentation available at http://localhost:${PORT}/api`
-        );
-      });
+    server.listen(PORT, "127.0.0.1", () => {
+  console.log(`Server is running on port ${PORT} (without MongoDB)`);
+  console.log(`API Documentation available at http://localhost:${PORT}/api`);
+});
+
+      
     } else {
       process.exit(1);
     }
