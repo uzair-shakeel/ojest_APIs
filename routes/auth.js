@@ -96,7 +96,7 @@ router.post("/signup", async (req, res) => {
       });
     }
 
-    // Create new user
+    // Create new user (do not save yet)
     const user = new User({
       email: email ? email.toLowerCase() : undefined,
       phoneNumber: phoneNumber
@@ -112,15 +112,15 @@ router.post("/signup", async (req, res) => {
 
     console.log("New user:", user);
 
-    // Generate OTP and save user
+    // Generate OTP (save only after OTP delivery succeeds)
     const otp = user.generateOTP();
-    await user.save();
 
     // Send OTP
     try {
       if (phoneNumber) {
         if (process.env.NODE_ENV === "development") {
           const loggedOTP = logOTP(phoneNumber, otp, "phone");
+          await user.save();
           return res.status(201).json({
             message: "User created successfully. OTP sent for verification.",
             userId: user._id,
@@ -130,6 +130,7 @@ router.post("/signup", async (req, res) => {
           });
         } else {
           await sendOTP(phoneNumber, otp, "phone");
+          await user.save();
           return res.status(201).json({
             message: "User created successfully. OTP sent for verification.",
             userId: user._id,
@@ -139,6 +140,7 @@ router.post("/signup", async (req, res) => {
         }
       } else if (email) {
         await sendOTP(email, otp, "email");
+        await user.save();
         return res.status(201).json({
           message: "User created successfully. OTP sent for verification.",
           userId: user._id,
@@ -148,9 +150,8 @@ router.post("/signup", async (req, res) => {
       }
     } catch (error) {
       console.error("OTP sending error:", error);
-      return res
-        .status(500)
-        .json({ message: "Failed to send OTP. Please try again." });
+      // Do not save user if OTP could not be sent in production
+      return res.status(500).json({ message: "Failed to send OTP. Please try again." });
     }
   } catch (error) {
     console.error("Signup error:", error);

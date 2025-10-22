@@ -45,6 +45,9 @@ const validatePhoneNumber = (phoneNumber) => {
 // Send SMS OTP via Twilio
 const sendSMSOTP = async (phoneNumber, otp) => {
   try {
+    if (!twilioClient) {
+      throw new Error("SMS provider not configured (missing Twilio credentials)");
+    }
     const validation = validatePhoneNumber(phoneNumber);
     if (!validation.isValid) {
       throw new Error(validation.error);
@@ -69,8 +72,11 @@ const sendSMSOTP = async (phoneNumber, otp) => {
 // Send Email OTP via Nodemailer
 const sendEmailOTP = async (email, otp) => {
   try {
+    if (!emailTransporter) {
+      throw new Error("Email provider not configured (missing EMAIL_USER/EMAIL_PASS)");
+    }
     const mailOptions = {
-      from: process.env.GMAIL_USER,
+      from: process.env.EMAIL_USER,
       to: email,
       subject: "OjestSell - Email Verification Code",
       html: `
