@@ -57,15 +57,16 @@ exports.getPublicUserInfo = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Keep sensitive fields excluded, but allow socialMedia so we can forward safe links
     const user = await User.findById(id).select(
-      "-password -email -phoneNumbers -socialMedia -approvalStatus -approvedBy -approvedAt -rejectionReason -role -isBlocked -createdAt -updatedAt"
+      "-password -email -phoneNumbers -approvalStatus -approvedBy -approvedAt -rejectionReason -role -isBlocked -createdAt -updatedAt"
     );
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Return only public information
+    // Return only public information + safe social links
     const publicUserData = {
       _id: user._id,
       firstName: user.firstName,
@@ -79,6 +80,11 @@ exports.getPublicUserInfo = async (req, res) => {
       rating: user.rating,
       totalSales: user.totalSales,
       memberSince: user.createdAt,
+      socialMedia: {
+        instagram: user?.socialMedia?.instagram || "",
+        facebook: user?.socialMedia?.facebook || "",
+        website: user?.socialMedia?.website || "",
+      },
     };
 
     res.json(publicUserData);
