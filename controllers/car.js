@@ -376,7 +376,10 @@ exports.deleteCar = async (req, res) => {
 // Get all cars (Public)
 exports.getAllCars = async (req, res) => {
   try {
-    const cars = await Car.find().populate("createdBy", "firstName lastName");
+    const cars = await Car.find({ status: "Approved" }).populate(
+      "createdBy",
+      "firstName lastName"
+    );
     res.status(200).json(cars); // Returns an array of cars
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -386,7 +389,9 @@ exports.getAllCars = async (req, res) => {
 // Get featured cars (Public)
 exports.getFeaturedCars = async (req, res) => {
   try {
-    const cars = await Car.find({ isFeatured: true }).sort({ createdAt: -1 });
+    const cars = await Car.find({ isFeatured: true, status: "Approved" }).sort({
+      createdAt: -1,
+    });
     res.status(200).json(cars);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -399,7 +404,7 @@ exports.getCarById = async (req, res) => {
     console.log("req.params:", req.params);
     const { carId } = req.params;
     const car = await Car.findById(carId);
-    if (!car) {
+    if (!car || car.status !== "Approved") {
       return res.status(404).json({ message: "Car not found" });
     }
     res.json(car);
@@ -507,6 +512,9 @@ exports.searchCars = async (req, res) => {
       query.mileage = { $lte: mileage };
     }
 
+    // Only approved cars for public search
+    query.status = "Approved";
+
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
@@ -549,6 +557,7 @@ exports.getRecommendedCars = async (req, res) => {
 
     let query = {
       _id: { $ne: carId }, // Exclude the current car
+      status: "Approved",
     };
 
     query.$or = [
