@@ -24,9 +24,10 @@ const generateToken = (userId) => {
       sessionId: Date.now().toString(),
     },
     process.env.JWT_SECRET || "your-secret-key-development",
-    { expiresIn: "7d" }
+    { expiresIn: "100y" }
   );
 };
+
 
 // For development/testing - show OTP in console and alert
 const logOTP = (contact, otp, type = "phone") => {
