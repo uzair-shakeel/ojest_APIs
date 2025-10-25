@@ -419,11 +419,18 @@ exports.updateCarStatus = async (req, res) => {
   try {
     const { userId } = req;
     const { carId } = req.params;
-    const { status } = req.body;
+    let { status } = req.body;
 
     const user = await User.findById(userId);
     if (!user || user.role !== "admin") {
       return res.status(403).json({ message: "Access denied. Admins only." });
+    }
+
+    // Normalize status (accept case-insensitive and legacy values)
+    if (typeof status === "string") {
+      const raw = status.trim().toLowerCase();
+      const legacyMap = { available: "Approved", pending: "Pending", suspended: "Rejected", rejected: "Rejected", approved: "Approved" };
+      status = legacyMap[raw] || (raw.charAt(0).toUpperCase() + raw.slice(1));
     }
 
     if (!status || !["Pending", "Approved", "Rejected"].includes(status)) {
@@ -809,12 +816,20 @@ exports.getAllCarsForAdmin = async (req, res) => {
 exports.updateCarStatusAdmin = async (req, res) => {
   try {
     const { carId } = req.params;
-    const { status } = req.body;
+    let { status } = req.body;
 
     // Remove admin check for now - direct access
 
-    if (!["available", "sold", "suspended", "pending"].includes(status)) {
-      return res.status(400).json({ message: "Invalid status" });
+    // Normalize status (accept case-insensitive and legacy values)
+    if (typeof status === "string") {
+      const raw = status.trim().toLowerCase();
+      const legacyMap = { available: "Approved", pending: "Pending", suspended: "Rejected", rejected: "Rejected", approved: "Approved" };
+      status = legacyMap[raw] || (raw.charAt(0).toUpperCase() + raw.slice(1));
+    }
+
+    const allowed = ["Pending", "Approved", "Rejected"];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ message: `Invalid status. Allowed: ${allowed.join(", ")}` });
     }
 
     const car = await Car.findById(carId);
