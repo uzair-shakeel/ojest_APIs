@@ -13,16 +13,25 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
 
 // Initialize Nodemailer transporter (only if credentials are available)
 let emailTransporter = null;
-if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+// Prefer domain SMTP configuration
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
+const SMTP_SECURE = process.env.SMTP_SECURE
+  ? ["true", "1", "yes"].includes(String(process.env.SMTP_SECURE).toLowerCase())
+  : undefined;
+const SMTP_USER = process.env.SMTP_USER || process.env.EMAIL_USER;
+const SMTP_PASS = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+
+if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
   emailTransporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+    host: SMTP_HOST,
+    port: SMTP_PORT ?? 587,
+    secure: SMTP_SECURE ?? false,
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS,
+    },
+  });
 }
 
 // Phone number validation
@@ -78,7 +87,7 @@ const sendEmailOTP = async (email, otp) => {
       throw new Error("Email provider not configured (missing EMAIL_USER/EMAIL_PASS)");
     }
     const mailOptions = {
-      from: process.env.EMAIL_USER,
+      from: process.env.SMTP_FROM || process.env.EMAIL_FROM || SMTP_USER,
       to: email,
       subject: "OjestSell - Email Verification Code",
       html: `
