@@ -1,6 +1,6 @@
 const { parsePhoneNumber, isValidPhoneNumber } = require("libphonenumber-js");
 const twilio = require("twilio");
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
 // Initialize Twilio client (only if credentials are available)
 let twilioClient = null;
@@ -11,27 +11,12 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
   );
 }
 
-// Initialize Nodemailer transporter (only if credentials are available)
-let emailTransporter = null;
-// Prefer domain SMTP configuration
-const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
-const SMTP_SECURE = process.env.SMTP_SECURE
-  ? ["true", "1", "yes"].includes(String(process.env.SMTP_SECURE).toLowerCase())
-  : undefined;
-const SMTP_USER = process.env.SMTP_USER || process.env.EMAIL_USER;
-const SMTP_PASS = process.env.SMTP_PASS || process.env.EMAIL_PASS;
-
-if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
-  emailTransporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT ?? 587,
-    secure: SMTP_SECURE ?? false,
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS,
-    },
-  });
+// Initialize Resend client (preferred email provider)
+let resendClient = null;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const RESEND_FROM = process.env.RESEND_FROM || process.env.SMTP_FROM || process.env.EMAIL_FROM;
+if (RESEND_API_KEY) {
+  resendClient = new Resend(RESEND_API_KEY);
 }
 
 // Phone number validation
@@ -80,39 +65,40 @@ const sendSMSOTP = async (phoneNumber, otp) => {
   }
 };
 
-// Send Email OTP via Nodemailer
+// Send Email OTP via Resend
 const sendEmailOTP = async (email, otp) => {
   try {
-    if (!emailTransporter) {
-      throw new Error("Email provider not configured (missing EMAIL_USER/EMAIL_PASS)");
+    if (!resendClient) {
+      throw new Error("Email provider not configured (missing RESEND_API_KEY)");
     }
-    const mailOptions = {
-      from: process.env.SMTP_FROM || process.env.EMAIL_FROM || SMTP_USER,
-      to: email,
-      subject: "OjestSell - Email Verification Code",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #2563eb;">OjestSell Email Verification</h2>
-          <p>Hello!</p>
-          <p>Your email verification code is:</p>
-          <div style="background-color: #f3f4f6; padding: 20px; text-align: center; margin: 20px 0;">
-            <h1 style="color: #2563eb; font-size: 32px; margin: 0; letter-spacing: 5px;">${otp}</h1>
-          </div>
-          <p>This code is valid for 10 minutes.</p>
-          <p>If you didn't request this code, please ignore this email.</p>
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
-          <p style="color: #6b7280; font-size: 14px;">
-            This is an automated message from OjestSell. Please do not reply to this email.
-          </p>
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #2563eb;">OjestSell Email Verification</h2>
+        <p>Hello!</p>
+        <p>Your email verification code is:</p>
+        <div style="background-color: #f3f4f6; padding: 20px; text-align: center; margin: 20px 0;">
+          <h1 style="color: #2563eb; font-size: 32px; margin: 0; letter-spacing: 5px;">${otp}</h1>
         </div>
-      `,
-    };
+        <p>This code is valid for 10 minutes.</p>
+        <p>If you didn't request this code, please ignore this email.</p>
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+        <p style="color: #6b7280; font-size: 14px;">
+          This is an automated message from OjestSell. Please do not reply to this email.
+        </p>
+      </div>
+    `;
 
-    const info = await emailTransporter.sendMail(mailOptions);
-    console.log(
-      `${otp} Email sent successfully to ${email}, Message ID: ${info.messageId}`
-    );
-    return { success: true, messageId: info.messageId };
+    const { data, error } = await resendClient.emails.send({
+      from: RESEND_FROM || "Ojest <send@ojest.pl>",
+      to: [email],
+      subject: "OjestSell - Email Verification Code",
+      html,
+    });
+    if (error) {
+      throw new Error(error.message || "Resend send failed");
+    }
+    console.log(`${otp} Email sent successfully to ${email}, ID: ${data?.id}`);
+    return { success: true, messageId: data?.id };
   } catch (error) {
     console.error("Email sending error:", error);
     throw new Error(`Failed to send email: ${error.message}`);
