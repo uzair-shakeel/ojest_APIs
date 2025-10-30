@@ -18,6 +18,8 @@ const RESEND_FROM = process.env.RESEND_FROM || process.env.SMTP_FROM || process.
 if (RESEND_API_KEY) {
   resendClient = new Resend(RESEND_API_KEY);
 }
+const APP_BASE_URL = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "https://ojest.pl";
+// const APP_BASE_URL = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 // Phone number validation
 const validatePhoneNumber = (phoneNumber) => {
@@ -126,4 +128,74 @@ module.exports = {
   sendSMSOTP,
   sendEmailOTP,
   sendOTP,
+  // extra mailers will be appended by further export additions below
 };
+
+// Additional transactional emails via Resend
+const sendApprovalEmail = async (email, { firstName = "" } = {}) => {
+  if (!resendClient) throw new Error("Email provider not configured (missing RESEND_API_KEY)");
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #16a34a;">OjestSell - Account Approved</h2>
+      <p>Hi ${firstName || "there"},</p>
+      <p>Your account has been approved. You can now sign in and start using OjestSell.</p>
+      <p><a href="${APP_BASE_URL}/sign-in" style="background:#16a34a;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;">Sign in</a></p>
+    </div>
+  `;
+  const { data, error } = await resendClient.emails.send({
+    from: RESEND_FROM || "Ojest <send@ojest.pl>",
+    to: [email],
+    subject: "Your OjestSell account is approved",
+    html,
+  });
+  if (error) throw new Error(error.message || "Resend send failed");
+  return { success: true, messageId: data?.id };
+};
+
+const sendRejectionEmail = async (email, { firstName = "", reason = "" } = {}) => {
+  if (!resendClient) throw new Error("Email provider not configured (missing RESEND_API_KEY)");
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #dc2626;">OjestSell - Registration Update</h2>
+      <p>Hi ${firstName || "there"},</p>
+      <p>We’re sorry, but your account was not approved at this time.</p>
+      ${reason ? `<p>Reason: ${reason}</p>` : ""}
+      <p>If you believe this was a mistake, you can reply to this email.</p>
+    </div>
+  `;
+  const { data, error } = await resendClient.emails.send({
+    from: RESEND_FROM || "Ojest <send@ojest.pl>",
+    to: [email],
+    subject: "OjestSell registration status",
+    html,
+  });
+  if (error) throw new Error(error.message || "Resend send failed");
+  return { success: true, messageId: data?.id };
+};
+
+const sendPasswordResetEmail = async (email, token) => {
+  if (!resendClient) throw new Error("Email provider not configured (missing RESEND_API_KEY)");
+  const resetUrl = `${APP_BASE_URL}/reset-password?token=${encodeURIComponent(token)}`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #2563eb;">Reset your OjestSell password</h2>
+      <p>We received a request to reset your password.</p>
+      <p><a href="${resetUrl}" style="background:#2563eb;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;">Reset Password</a></p>
+      <p>This link will expire in 60 minutes. If you didn’t request this, you can safely ignore this email.</p>
+      <p>If the button doesn't work, copy and paste this URL into your browser:</p>
+      <p>${resetUrl}</p>
+    </div>
+  `;
+  const { data, error } = await resendClient.emails.send({
+    from: RESEND_FROM || "Ojest <send@ojest.pl>",
+    to: [email],
+    subject: "Reset your OjestSell password",
+    html,
+  });
+  if (error) throw new Error(error.message || "Resend send failed");
+  return { success: true, messageId: data?.id };
+};
+
+module.exports.sendApprovalEmail = sendApprovalEmail;
+module.exports.sendRejectionEmail = sendRejectionEmail;
+module.exports.sendPasswordResetEmail = sendPasswordResetEmail;

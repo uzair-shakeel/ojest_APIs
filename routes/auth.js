@@ -1,6 +1,7 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const { User } = require("../models");
+const crypto = require("crypto");
 const { auth } = require("../middlewares/auth");
 const { validatePhoneNumber, sendOTP } = require("../utils/otpService");
 const {
@@ -37,7 +38,7 @@ const logOTP = (contact, otp, type = "phone") => {
 
 router.post("/signup", async (req, res) => {
   try {
-    const { email, phoneNumber, password, firstName, lastName } = req.body;
+    const { email, phoneNumber, password, firstName, lastName, termsAccepted, termsVersion } = req.body;
 
     console.log("Input:", {
       email,
@@ -60,6 +61,11 @@ router.post("/signup", async (req, res) => {
       return res
         .status(400)
         .json({ message: "Password must be at least 6 characters" });
+    }
+
+    // Require Terms & Conditions acceptance
+    if (!termsAccepted) {
+      return res.status(400).json({ message: "You must accept the Terms & Conditions" });
     }
 
     // Validate phone number if provided
@@ -109,6 +115,9 @@ router.post("/signup", async (req, res) => {
       isEmailVerified: false,
       isPhoneVerified: false,
       approvalStatus: "pending", // New users start as pending
+      termsAccepted: true,
+      termsAcceptedAt: new Date(),
+      termsVersion: termsVersion || "v1",
     });
 
     console.log("New user:", user);
@@ -492,3 +501,90 @@ router.get("/me", auth, async (req, res) => {
 });
 
 module.exports = router;
+
+// Password reset and change endpoints
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    // For security, do not reveal if user exists
+    if (!user) return res.json({ message: "If the email exists, a reset link was sent" });
+
+    const token = crypto.randomBytes(32).toString("hex");
+    user.resetPasswordToken = token;
+    user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await user.save();
+
+    try {
+      const { sendPasswordResetEmail } = require("../utils/otpService");
+      await sendPasswordResetEmail(user.email, token);
+    } catch (e) {
+      console.error("Failed to send reset email:", e?.message || e);
+    }
+
+    res.json({ message: "If the email exists, a reset link was sent" });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ message: "Token and new password are required" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters" });
+    }
+
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: new Date() },
+    });
+    if (!user) return res.status(400).json({ message: "Invalid or expired token" });
+
+    // Force local provider so pre-save hook will hash password
+    user.authProvider = "local";
+    user.password = newPassword; // will be hashed by pre-save hook
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    res.json({ message: "Password has been reset successfully" });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+router.put("/change-password", auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current and new passwords are required" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters" });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const valid = await user.comparePassword(currentPassword);
+    if (!valid) return res.status(400).json({ message: "Current password is incorrect" });
+
+    // Force local provider so pre-save hook will hash password
+    user.authProvider = "local";
+    user.password = newPassword; // will be hashed by pre-save hook
+    await user.save();
+
+    res.json({ message: "Password changed successfully" });
+  } catch (error) {
+    console.error("Change password error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});

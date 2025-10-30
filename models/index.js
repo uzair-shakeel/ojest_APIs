@@ -158,6 +158,28 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    // Terms & Conditions
+    termsAccepted: {
+      type: Boolean,
+      default: false,
+    },
+    termsAcceptedAt: {
+      type: Date,
+    },
+    termsVersion: {
+      type: String,
+      default: "v1",
+    },
+    // Password reset
+    resetPasswordToken: {
+      type: String,
+    },
+    resetPasswordExpires: {
+      type: Date,
+    },
+    passwordChangedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,
@@ -172,6 +194,7 @@ userSchema.pre("save", async function (next) {
   try {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
+    this.passwordChangedAt = new Date();
     next();
   } catch (error) {
     next(error);

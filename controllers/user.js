@@ -580,6 +580,15 @@ exports.approveUser = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+    try {
+      const { sendApprovalEmail } = require("../utils/otpService");
+      if (user.email) {
+        await sendApprovalEmail(user.email, { firstName: user.firstName });
+      }
+    } catch (e) {
+      console.error("Failed to send approval email:", e?.message || e);
+    }
+
     res.json({
       message: "User approved successfully",
       user,
@@ -616,6 +625,18 @@ exports.rejectUser = async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
+    }
+
+    try {
+      const { sendRejectionEmail } = require("../utils/otpService");
+      if (user.email) {
+        await sendRejectionEmail(user.email, {
+          firstName: user.firstName,
+          reason: user.rejectionReason,
+        });
+      }
+    } catch (e) {
+      console.error("Failed to send rejection email:", e?.message || e);
     }
 
     res.json({
@@ -729,6 +750,23 @@ exports.updateUserApprovalStatus = async (req, res) => {
       lastName: user.lastName,
       approvalStatus: user.approvalStatus,
     });
+
+    // Try to send transactional email depending on status
+    try {
+      const { sendApprovalEmail, sendRejectionEmail } = require("../utils/otpService");
+      if (user?.email) {
+        if (status === "approved") {
+          await sendApprovalEmail(user.email, { firstName: user.firstName });
+        } else if (status === "rejected") {
+          await sendRejectionEmail(user.email, {
+            firstName: user.firstName,
+            reason: user.rejectionReason,
+          });
+        }
+      }
+    } catch (mailErr) {
+      console.error("✉️ Failed to send status email:", mailErr?.message || mailErr);
+    }
 
     console.log("📤 Sending success response...");
     res.json({
