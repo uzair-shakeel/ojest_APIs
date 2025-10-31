@@ -360,7 +360,7 @@ router.post("/signin", async (req, res) => {
     const token = generateToken(user._id);
 
     res.json({
-      message: "Sign in successful",
+      message: "Zalogowano pomyślnie",
       token,
       user: {
         id: user._id,
