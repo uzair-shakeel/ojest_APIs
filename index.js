@@ -31,6 +31,7 @@ const allowedOrigins = [
   "http://209.38.211.146",
   "http://localhost:3001",
   "https://ojest.pl",
+  "https://www.ojest.pl",
   "https://ojest-client.vercel.app",
   "https://b7e6e2a7a0f3c7f3b3b0c7b8e0f6b7a6c2e.vercel.app",
   "https://ojest-sell-two.vercel.app",
@@ -63,11 +64,14 @@ app.use(
       }
       return callback(null, true);
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   })
 );
+
+// Explicitly enable preflight across all routes
+app.options("*", cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
