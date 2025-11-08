@@ -11,10 +11,7 @@ exports.setIo = (socketIo) => {
 // Post a new car (Normal user)
 exports.addCar = async (req, res) => {
   try {
-    console.log("req.body:", req.body);
-    console.log("req.files:", req.files);
     const { userId } = req;
-    console.log("userId:", userId);
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -51,13 +48,13 @@ exports.addCar = async (req, res) => {
       isFeatured,
     } = req.body;
 
-    console.log("title:", title);
-    console.log("description:", description);
-    console.log("make:", make);
-    console.log("model:", model);
-    console.log("type:", type);
-    console.log("condition:", condition);
-    console.log("financialInfo (raw):", financialInfo);
+    // console.log("title:", title);
+    // console.log("description:", description);
+    // console.log("make:", make);
+    // console.log("model:", model);
+    // console.log("type:", type);
+    // console.log("condition:", condition);
+    // console.log("financialInfo (raw):", financialInfo);
     let fi;
     try {
       fi =
@@ -67,7 +64,6 @@ exports.addCar = async (req, res) => {
     } catch (e) {
       fi = financialInfo;
     }
-    console.log("financialInfo (parsed):", fi);
     if (!title) console.log("Missing: title");
     if (!description) console.log("Missing: description");
     if (!make) console.log("Missing: make");
@@ -170,10 +166,10 @@ exports.getCarsByUserId = async (req, res) => {
   try {
     const { userId } = req; // Use authenticated user ID for security
 
-    console.log("userId", userId);
+    // console.log("userId", userId);
     const cars = await Car.find({ createdBy: userId });
     // Don't return 404 for empty results, just return empty array
-    console.log("cars", cars);
+    // console.log("cars", cars);
     res.json(cars);
   } catch (error) {
     console.error("Get Cars By User ID Error:", error);

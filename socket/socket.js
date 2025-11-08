@@ -2,7 +2,7 @@ const { User, Chat, Message } = require("../models");
 
 module.exports = (io) => {
   io.on("connection", (socket) => {
-    console.log("User connected:", socket.id);
+    // console.log("User connected:", socket.id);
 
     // Join user to their personal room
     socket.on("join", async (userId) => {
@@ -14,7 +14,7 @@ module.exports = (io) => {
 
         // Join user to their personal room
         socket.join(userId);
-        console.log(`User ${userId} joined their room`);
+        // console.log(`User ${userId} joined their room`);
 
         // Also join to a general room for broadcast messages
         socket.join("general");
@@ -123,7 +123,7 @@ module.exports = (io) => {
 
     // Handle disconnect
     socket.on("disconnect", () => {
-      console.log("User disconnected:", socket.id);
+      // console.log("User disconnected:", socket.id);
     });
   });
 };

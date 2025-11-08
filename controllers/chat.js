@@ -73,7 +73,6 @@ exports.getUserChats = async (req, res) => {
   const userId = req.userId || req.auth?.userId;
 
   try {
-    console.log("[DEBUG] getUserChats - userId:", userId);
 
     if (!userId) {
       return res.status(401).json({ message: "Authentication required" });
@@ -134,7 +133,7 @@ exports.getChatMessages = async (req, res) => {
   const userId = req.userId || req.auth?.userId;
 
   try {
-    console.log("[DEBUG] getChatMessages - userId:", userId);
+    // console.log("[DEBUG] getChatMessages - userId:", userId);
 
     if (!userId) {
       return res.status(401).json({ message: "Authentication required" });
