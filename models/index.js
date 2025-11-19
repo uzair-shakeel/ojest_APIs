@@ -418,6 +418,23 @@ const carSchema = new mongoose.Schema(
         trim: true,
       },
     },
+    warranties: [
+      {
+        years: {
+          type: Number,
+        },
+        mileageLimit: {
+          type: Number,
+        },
+        extraPrice: {
+          type: Number,
+        },
+        description: {
+          type: String,
+          trim: true,
+        },
+      },
+    ],
     financialInfo: {
       sellOptions: {
         type: [String],

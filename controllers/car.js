@@ -46,6 +46,7 @@ exports.addCar = async (req, res) => {
       carCondition,
       financialInfo,
       isFeatured,
+      warranties,
     } = req.body;
 
     // console.log("title:", title);
@@ -102,6 +103,17 @@ exports.addCar = async (req, res) => {
 
     const images = req.files.map((file) => file.cloudinaryUrl);
 
+    // Normalize warranties (may arrive as JSON string from multipart form)
+    let parsedWarranties = undefined;
+    if (typeof warranties !== "undefined") {
+      try {
+        parsedWarranties =
+          typeof warranties === "string" ? JSON.parse(warranties) : warranties;
+      } catch (e) {
+        parsedWarranties = Array.isArray(warranties) ? warranties : [];
+      }
+    }
+
     // Process financialInfo to handle possible comma-separated strings
     const processedFinancialInfo = {
       ...fi,
@@ -144,6 +156,7 @@ exports.addCar = async (req, res) => {
       vin,
       country,
       carCondition: carCondition || {},
+      warranties: parsedWarranties,
       financialInfo: {
         ...processedFinancialInfo,
         sellerType: user.sellerType, // Sync with user's sellerType
@@ -227,6 +240,7 @@ exports.updateCar = async (req, res) => {
       location,
       status,
       isFeatured,
+      warranties,
     } = req.body;
 
     const images =
@@ -271,6 +285,17 @@ exports.updateCar = async (req, res) => {
     if (vin) updateData.vin = vin;
     if (country) updateData.country = country;
     if (carCondition) updateData.carCondition = carCondition;
+    if (typeof warranties !== "undefined") {
+      let parsedWarranties = warranties;
+      if (typeof warranties === "string") {
+        try {
+          parsedWarranties = JSON.parse(warranties);
+        } catch (e) {
+          parsedWarranties = [];
+        }
+      }
+      updateData.warranties = parsedWarranties;
+    }
     if (typeof isFeatured !== 'undefined') {
       updateData.isFeatured = String(isFeatured).toLowerCase() === 'true';
     }
