@@ -14,6 +14,7 @@ const carRoutes = require("./routes/car");
 const chatRoutes = require("./routes/chat");
 const webhookRoutes = require("./routes/webhook");
 const authRoutes = require("./routes/auth");
+const imageDetectionRoutes = require("./routes/imageDetection");
 
 // Connect to Database
 const { connectDB } = require("./config/connect");
@@ -109,6 +110,7 @@ app.use("/api/cars", carRoutes);
 app.use("/api/buyer-requests", buyerRequestRoutes);
 app.use("/api/seller-offers", sellerOfferRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/image-detection", imageDetectionRoutes);
 app.use("/api", webhookRoutes);
 
 // Pass io to car controller
@@ -139,23 +141,23 @@ const startServer = async () => {
     // Wait for MongoDB connection
     await connectDB;
 
-   server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`API Documentation available at http://localhost:${PORT}/api`);
-});
+    server.listen(PORT, "127.0.0.1", () => {
+      console.log(`Server is running on port ${PORT}`);
+      console.log(`API Documentation available at http://localhost:${PORT}/api`);
+    });
 
-    
+
   } catch (error) {
     console.error("Failed to start server:", error);
     // For development, start server even if MongoDB fails
     if (process.env.NODE_ENV === "development") {
       console.log("Starting server without MongoDB for development...");
-    server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Server is running on port ${PORT} (without MongoDB)`);
-  console.log(`API Documentation available at http://localhost:${PORT}/api`);
-});
+      server.listen(PORT, "127.0.0.1", () => {
+        console.log(`Server is running on port ${PORT} (without MongoDB)`);
+        console.log(`API Documentation available at http://localhost:${PORT}/api`);
+      });
 
-      
+
     } else {
       process.exit(1);
     }
