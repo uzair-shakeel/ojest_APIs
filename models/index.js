@@ -316,6 +316,34 @@ const carSchema = new mongoose.Schema(
       ],
       required: true,
     },
+    categorizedImages: {
+      type: [
+        {
+          url: {
+            type: String,
+            required: true,
+          },
+          category: {
+            type: String,
+            enum: [
+              "exterior",
+              "interior",
+              "engine",
+              "dashboard",
+              "wheel",
+              "keys",
+              "documents",
+              "unknown",
+            ],
+            default: "unknown",
+          },
+          detected_label: String,
+          confidence: Number,
+          index: Number,
+        },
+      ],
+      default: [],
+    },
     make: {
       type: String,
       required: true,

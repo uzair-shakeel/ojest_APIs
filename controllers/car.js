@@ -103,6 +103,43 @@ exports.addCar = async (req, res) => {
 
     const images = req.files.map((file) => file.cloudinaryUrl);
 
+    // Detect and categorize images
+    console.log(`Detecting and categorizing ${images.length} images...`);
+    const imageDetectionController = require("./imageDetection");
+    const categorizedImages = [];
+
+    for (let i = 0; i < images.length; i++) {
+      try {
+        const detectionResult = await imageDetectionController.detectImage(
+          images[i]
+        );
+        categorizedImages.push({
+          url: images[i],
+          category: detectionResult.category || "unknown",
+          detected_label: detectionResult.detected_label,
+          confidence: detectionResult.confidence,
+          index: i,
+        });
+        console.log(
+          `Image ${i + 1}/${images.length} detected as: ${detectionResult.category}`
+        );
+      } catch (error) {
+        console.error(`Failed to detect image ${i + 1}:`, error);
+        // If detection fails, still add the image with unknown category
+        categorizedImages.push({
+          url: images[i],
+          category: "unknown",
+          detected_label: "Unknown",
+          confidence: 0,
+          index: i,
+        });
+      }
+    }
+
+    console.log(
+      `Image detection complete. Categorized ${categorizedImages.length} images.`
+    );
+
     // Normalize warranties (may arrive as JSON string from multipart form)
     let parsedWarranties = undefined;
     if (typeof warranties !== "undefined") {
@@ -120,24 +157,25 @@ exports.addCar = async (req, res) => {
       sellOptions: Array.isArray(fi.sellOptions)
         ? fi.sellOptions
         : String(fi.sellOptions)
-            .split(",")
-            .map((option) => option.trim()),
+          .split(",")
+          .map((option) => option.trim()),
       invoiceOptions: Array.isArray(fi.invoiceOptions)
         ? fi.invoiceOptions
         : String(fi.invoiceOptions)
-            .split(",")
-            .map((option) => option.trim()),
+          .split(",")
+          .map((option) => option.trim()),
       priceNetto: parseFloat(fi.priceNetto),
     };
 
     // Normalize isFeatured from multipart (string) or json
-    const isFeaturedBool = String(isFeatured).toLowerCase() === 'true';
+    const isFeaturedBool = String(isFeatured).toLowerCase() === "true";
 
     const car = new Car({
       createdBy: userId,
       title,
       description,
-      images,
+      images, // Keep for backward compatibility
+      categorizedImages, // New field with categories
       make,
       model,
       trim,
@@ -248,6 +286,44 @@ exports.updateCar = async (req, res) => {
         ? req.files.map((file) => file.cloudinaryUrl)
         : car.images;
 
+    // Detect and categorize new images if any were uploaded
+    let categorizedImages = car.categorizedImages || [];
+    if (req.files && req.files.length > 0) {
+      console.log(`Detecting and categorizing ${req.files.length} new images...`);
+      const imageDetectionController = require("./imageDetection");
+      categorizedImages = [];
+
+      for (let i = 0; i < images.length; i++) {
+        try {
+          const detectionResult = await imageDetectionController.detectImage(
+            images[i]
+          );
+          categorizedImages.push({
+            url: images[i],
+            category: detectionResult.category || "unknown",
+            detected_label: detectionResult.detected_label,
+            confidence: detectionResult.confidence,
+            index: i,
+          });
+          console.log(
+            `Image ${i + 1}/${images.length} detected as: ${detectionResult.category}`
+          );
+        } catch (error) {
+          console.error(`Failed to detect image ${i + 1}:`, error);
+          categorizedImages.push({
+            url: images[i],
+            category: "unknown",
+            detected_label: "Unknown",
+            confidence: 0,
+            index: i,
+          });
+        }
+      }
+      console.log(
+        `Image detection complete. Categorized ${categorizedImages.length} images.`
+      );
+    }
+
     let coordinates = car.location.coordinates;
     if (location && location.coordinates) {
       if (typeof location.coordinates === "string") {
@@ -266,7 +342,10 @@ exports.updateCar = async (req, res) => {
     const updateData = {};
     if (title) updateData.title = title;
     if (description) updateData.description = description;
-    if (images.length > 0) updateData.images = images;
+    if (images.length > 0) {
+      updateData.images = images; // Keep for backward compatibility
+      updateData.categorizedImages = categorizedImages; // New field with categories
+    }
     if (make) updateData.make = make;
     if (model) updateData.model = model;
     if (trim) updateData.trim = trim;
@@ -311,8 +390,8 @@ exports.updateCar = async (req, res) => {
         )
           ? financialInfo.sellOptions
           : String(financialInfo.sellOptions)
-              .split(",")
-              .map((option) => option.trim());
+            .split(",")
+            .map((option) => option.trim());
       }
 
       if (financialInfo.invoiceOptions) {
@@ -321,8 +400,8 @@ exports.updateCar = async (req, res) => {
         )
           ? financialInfo.invoiceOptions
           : String(financialInfo.invoiceOptions)
-              .split(",")
-              .map((option) => option.trim());
+            .split(",")
+            .map((option) => option.trim());
       }
 
       if (financialInfo.priceNetto) {

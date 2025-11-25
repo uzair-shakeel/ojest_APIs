@@ -108,3 +108,101 @@ exports.detectImageCategory = async (req, res) => {
         });
     }
 };
+
+/**
+ * Helper function to normalize category names
+ * @param {string} raw - Raw category name from API
+ * @returns {string} Normalized category name
+ */
+function normalizeCategory(raw) {
+    if (!raw) return "unknown";
+    const value = raw.toString().toLowerCase();
+    if (value.includes("exterior")) return "exterior";
+    if (value.includes("interior")) return "interior";
+    if (value.includes("engine")) return "engine";
+    if (value.includes("dash")) return "dashboard";
+    if (value.includes("wheel")) return "wheel";
+    if (value.includes("key")) return "keys";
+    if (value.includes("document") || value.includes("doc")) return "documents";
+    return "unknown";
+}
+
+/**
+ * Detect and categorize a single image
+ * @param {string} imageUrl - URL of the image to detect
+ * @returns {Promise<Object>} Detection result with category, label, and confidence
+ */
+exports.detectImage = async (imageUrl) => {
+    try {
+        // Normalize the image URL
+        let normalizedUrl = imageUrl.trim();
+
+        // If it's not already a full URL (starts with http:// or https://)
+        if (!/^https?:\/\//i.test(normalizedUrl)) {
+            // Check if it's a Cloudinary URL without protocol (starts with //)
+            if (normalizedUrl.startsWith("//")) {
+                normalizedUrl = `https:${normalizedUrl}`;
+            } else if (
+                normalizedUrl.includes("cloudinary.com") ||
+                normalizedUrl.includes("res.cloudinary.com")
+            ) {
+                // Cloudinary URL missing protocol
+                normalizedUrl = `https://${normalizedUrl}`;
+            }
+        }
+
+        // Ensure Cloudinary URLs are properly formatted
+        if (
+            normalizedUrl.includes("cloudinary.com") &&
+            !normalizedUrl.includes("res.cloudinary.com")
+        ) {
+            normalizedUrl = normalizedUrl.replace(
+                "cloudinary.com",
+                "res.cloudinary.com"
+            );
+        }
+
+        console.log("Detecting image:", {
+            original: imageUrl?.substring(0, 100),
+            normalized: normalizedUrl?.substring(0, 100),
+        });
+
+        // Call the external detection API
+        const response = await fetch(DETECTION_API_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                image_url: normalizedUrl,
+            }),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error("Detection API error:", {
+                status: response.status,
+                error: errorText,
+            });
+            throw new Error(`Detection API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        return {
+            category: normalizeCategory(data.category || data.detected_label),
+            detected_label: data.detected_label,
+            confidence: data.confidence,
+            success: data.success !== false,
+        };
+    } catch (error) {
+        console.error("Error in detectImage:", error);
+        // Return unknown category on error instead of throwing
+        return {
+            category: "unknown",
+            detected_label: "Unknown",
+            confidence: 0,
+            success: false,
+        };
+    }
+};
