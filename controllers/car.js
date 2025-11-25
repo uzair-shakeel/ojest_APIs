@@ -8,6 +8,93 @@ let io; // Store io instance
 exports.setIo = (socketIo) => {
   io = socketIo;
 };
+
+const COUNTRY_MAPPING = {
+  "Albania": [],
+  "Armenia": [],
+  "Australia": [],
+  "Austria": [],
+  "Azerbejdżan": [],
+  "Bahrajn": [],
+  "Belgia": [],
+  "Białoruś": [],
+  "Bułgaria": [],
+  "Chiny": [
+    "BAIC", "Brilliance", "BYD", "Changan", "Chery", "Dongfeng", "Geely",
+    "Great Wall Motors", "Haval", "JAC Motors", "JMC", "Lifan", "Nio",
+    "Polestar", "Volvo", "Wuling", "Zotye", "MG"
+  ],
+  "Chorwacja": [],
+  "Czarnogóra": [],
+  "Czechy": ["Škoda"],
+  "Dania": [],
+  "Dubaj": [],
+  "Estonia": [],
+  "Finlandia": [],
+  "Francja": ["Alpine", "Bugatti", "Citroën", "DS", "Peugeot", "Renault"],
+  "Gruzja": [],
+  "Hiszpania": ["Seat"],
+  "Holandia": [],
+  "Indie": ["Mahindra", "Tata Motors"],
+  "Irlandia": [],
+  "Islandia": [],
+  "Izrael": [],
+  "Japonia": [
+    "Acura", "Daihatsu", "Honda", "Infiniti", "Isuzu", "Lexus", "Mazda",
+    "Mitsubishi", "Nissan", "Subaru", "Suzuki", "Toyota"
+  ],
+  "Kanada": [],
+  "Katar": [],
+  "Kazachstan": [],
+  "Korea Południowa": ["Daewoo", "Genesis", "Hyundai", "Kia", "SsangYong"],
+  "Kuwejt": [],
+  "Litwa": [],
+  "Luksemburg": [],
+  "Łotwa": [],
+  "Macedonia Północna": [],
+  "Malezja": ["Proton"],
+  "Niemcy": [
+    "Audi", "BMW", "Maybach", "Mercedes-Benz", "Opel", "Porsche", "Smart", "Volkswagen"
+  ],
+  "Norwegia": [],
+  "Oman": [],
+  "Portugalia": [],
+  "Rosja": ["Lada"],
+  "Rumunia": ["Dacia"],
+  "Arabia Saudyjska": [],
+  "Serbia": [],
+  "Słowacja": [],
+  "Słowenia": [],
+  "Stany Zjednoczone": [
+    "Buick", "Cadillac", "Chevrolet", "Chrysler", "Dodge", "Fisker", "Ford",
+    "GMC", "Hummer", "Jeep", "Lincoln", "Pontiac", "Ram", "Tesla"
+  ],
+  "Szwajcaria": [],
+  "Szwecja": ["Koenigsegg", "Rimac", "Saab"],
+  "Turcja": [],
+  "Ukraina": [],
+  "Węgry": [],
+  "Wielka Brytania": [
+    "Aston Martin", "Bentley", "Jaguar", "Land Rover", "Lotus", "McLaren",
+    "Mini", "Rolls-Royce", "Vauxhall"
+  ],
+  "Włochy": [
+    "Abarth", "Alfa Romeo", "Fiat", "Ferrari", "Lamborghini", "Maserati", "Pagani"
+  ],
+  "Zjednoczone Emiraty Arabskie": []
+};
+
+const getCountryOfManufacturer = (make) => {
+  if (!make) return null;
+  const normalizedMake = make.trim().toLowerCase();
+
+  for (const [country, brands] of Object.entries(COUNTRY_MAPPING)) {
+    if (brands.some(brand => brand.toLowerCase() === normalizedMake)) {
+      return country;
+    }
+  }
+  return null;
+};
 // Post a new car (Normal user)
 exports.addCar = async (req, res) => {
   try {
@@ -193,6 +280,7 @@ exports.addCar = async (req, res) => {
       serviceHistory,
       vin,
       country,
+      countryOfManufacturer: getCountryOfManufacturer(make),
       carCondition: carCondition || {},
       warranties: parsedWarranties,
       financialInfo: {
@@ -346,7 +434,10 @@ exports.updateCar = async (req, res) => {
       updateData.images = images; // Keep for backward compatibility
       updateData.categorizedImages = categorizedImages; // New field with categories
     }
-    if (make) updateData.make = make;
+    if (make) {
+      updateData.make = make;
+      updateData.countryOfManufacturer = getCountryOfManufacturer(make);
+    }
     if (model) updateData.model = model;
     if (trim) updateData.trim = trim;
     if (type) updateData.type = type;
@@ -576,9 +667,13 @@ exports.searchCars = async (req, res) => {
       engine,
       serviceHistory,
       accidentHistory,
+      countryOfManufacturer,
       page = 1,
       limit = 10,
     } = req.query;
+
+    // DEBUG: Log country filter parameter
+    console.log("🔍 searchCars - countryOfManufacturer param:", countryOfManufacturer);
 
     let query = {};
 
@@ -608,6 +703,10 @@ exports.searchCars = async (req, res) => {
     if (engine) query.engine = engine;
     if (serviceHistory) query.serviceHistory = serviceHistory;
     if (accidentHistory) query.accidentHistory = accidentHistory;
+    if (countryOfManufacturer) {
+      query.countryOfManufacturer = countryOfManufacturer;
+      console.log("✅ Country filter applied to query:", countryOfManufacturer);
+    }
 
     // Year range filter
     if (yearFrom && yearTo) {
@@ -622,12 +721,23 @@ exports.searchCars = async (req, res) => {
     // Only approved cars for public search
     query.status = "Approved";
 
+    // DEBUG: Log the complete query
+    console.log("🔍 searchCars - Complete query:", JSON.stringify(query, null, 2));
+
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
     const totalCars = await Car.countDocuments(query);
     const cars = await Car.find(query).skip(skip).limit(limitNum);
+
+    // DEBUG: Log results
+    console.log(`🔍 searchCars - Found ${totalCars} total cars, returning ${cars.length} cars`);
+    if (countryOfManufacturer && cars.length > 0) {
+      console.log("🔍 Sample car countryOfManufacturer values:",
+        cars.slice(0, 3).map(c => ({ make: c.make, country: c.countryOfManufacturer }))
+      );
+    }
 
     res.json({
       cars,

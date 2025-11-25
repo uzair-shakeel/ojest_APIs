@@ -419,6 +419,10 @@ const carSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    countryOfManufacturer: {
+      type: String,
+      trim: true,
+    },
     carCondition: {
       interior: {
         type: String,
