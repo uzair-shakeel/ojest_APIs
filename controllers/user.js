@@ -59,7 +59,7 @@ exports.getPublicUserInfo = async (req, res) => {
 
     // Keep sensitive fields excluded, but allow socialMedia so we can forward safe links
     const user = await User.findById(id).select(
-      "-password -email -phoneNumbers -approvalStatus -approvedBy -approvedAt -rejectionReason -role -isBlocked -createdAt -updatedAt"
+      "-password -email -approvalStatus -approvedBy -approvedAt -rejectionReason -role -isBlocked -createdAt -updatedAt"
     );
 
     if (!user) {
@@ -80,6 +80,7 @@ exports.getPublicUserInfo = async (req, res) => {
       rating: user.rating,
       totalSales: user.totalSales,
       memberSince: user.createdAt,
+      phoneNumbers: user.phoneNumbers,
       socialMedia: {
         instagram: user?.socialMedia?.instagram || "",
         facebook: user?.socialMedia?.facebook || "",
@@ -935,9 +936,8 @@ exports.toggleUserBlock = async (req, res) => {
     await targetUser.save();
 
     res.json({
-      message: `User ${
-        targetUser.blocked ? "blocked" : "unblocked"
-      } successfully`,
+      message: `User ${targetUser.blocked ? "blocked" : "unblocked"
+        } successfully`,
       user: targetUser,
     });
   } catch (error) {
