@@ -227,6 +227,64 @@ exports.addCar = async (req, res) => {
       `Image detection complete. Categorized ${categorizedImages.length} images.`
     );
 
+    // Auto-sort images: Main (first) image stays first, others sorted by category
+    if (categorizedImages.length > 1) {
+      console.log(
+        "Before sort:",
+        categorizedImages.map((img) => ({
+          idx: img.index,
+          cat: img.category,
+          label: img.detected_label,
+        }))
+      );
+      const CATEGORY_PRIORITY = [
+        "exterior",
+        "interior",
+        "dashboard",
+        "wheel",
+        "engine",
+        "documents",
+        "keys",
+      ];
+
+      const mainImage = categorizedImages[0];
+      const otherImages = categorizedImages.slice(1);
+
+      otherImages.sort((a, b) => {
+        const catA = a.category ? a.category.toLowerCase() : "unknown";
+        const catB = b.category ? b.category.toLowerCase() : "unknown";
+
+        let indexA = CATEGORY_PRIORITY.indexOf(catA);
+        let indexB = CATEGORY_PRIORITY.indexOf(catB);
+
+        // If category not in list, put it at the end
+        if (indexA === -1) indexA = 999;
+        if (indexB === -1) indexB = 999;
+
+        return indexA - indexB;
+      });
+
+      // Reconstruct the array
+      const sortedCategorizedImages = [mainImage, ...otherImages];
+
+      // Update indices and rebuild the 'images' string array (critical!)
+      // We must modify the original arrays that will be saved to DB
+      sortedCategorizedImages.forEach((img, idx) => {
+        img.index = idx; // Update index
+      });
+
+      // Replace the original arrays with sorted versions
+      categorizedImages.length = 0; // Clear original
+      images.length = 0; // Clear original
+
+      sortedCategorizedImages.forEach((img) => {
+        categorizedImages.push(img);
+        images.push(img.url);
+      });
+
+      console.log("Images sorted by category priority.");
+    }
+
     // Normalize warranties (may arrive as JSON string from multipart form)
     let parsedWarranties = undefined;
     if (typeof warranties !== "undefined") {
@@ -661,6 +719,7 @@ exports.searchCars = async (req, res) => {
       yearTo,
       condition,
       mileage,
+      minMileage,
       drivetrain,
       transmission,
       fuel,
@@ -713,9 +772,15 @@ exports.searchCars = async (req, res) => {
       query.year = { $gte: yearFrom, $lte: yearTo };
     }
 
-    // Mileage filter
-    if (mileage) {
-      query.mileage = { $lte: mileage };
+    // Mileage filter (support range)
+    if (minMileage || mileage) {
+      query.mileage = {};
+      if (minMileage) {
+        query.mileage.$gte = parseInt(minMileage, 10);
+      }
+      if (mileage) {
+        query.mileage.$lte = parseInt(mileage, 10);
+      }
     }
 
     // Only approved cars for public search

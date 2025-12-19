@@ -117,7 +117,32 @@ exports.detectImageCategory = async (req, res) => {
 function normalizeCategory(raw) {
     if (!raw) return "unknown";
     const value = raw.toString().toLowerCase();
-    if (value.includes("exterior")) return "exterior";
+    if (
+        value.includes("exterior") ||
+        value.includes("front") ||
+        value.includes("rear") ||
+        value.includes("side") ||
+        value.includes("bumper") ||
+        value.includes("hood") ||
+        value.includes("trunk") ||
+        value.includes("door")
+    ) {
+        // Exclude interior cues that might overlap with "front" or "rear"
+        // Also exclude specific parts like engine, wheel, tire which have their own categories
+        if (
+            !value.includes("seat") &&
+            !value.includes("dash") &&
+            !value.includes("inside") &&
+            !value.includes("interior") &&
+            !value.includes("steering") &&
+            !value.includes("engine") &&
+            !value.includes("wheel") &&
+            !value.includes("tire") &&
+            !value.includes("panel")
+        ) {
+            return "exterior";
+        }
+    }
     if (value.includes("interior")) return "interior";
     if (value.includes("engine")) return "engine";
     if (value.includes("dash")) return "dashboard";
