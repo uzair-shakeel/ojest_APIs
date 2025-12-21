@@ -43,18 +43,26 @@ router.delete("/admin/:carId", carController.deleteCarAdmin);
 
 // Normal User Routes
 router.post(
+  "/upload-images",
+  auth,
+  upload.array("images", 100),
+  uploadToCloudinary,
+  carController.uploadImages
+);
+
+router.post(
   "/",
   auth,
-  upload.array("images", 10),
+  upload.array("images", 100),
   uploadToCloudinary,
   carController.addCar
-); // Max 10 images
+); // Max 100 images
 
 router.get("/my-cars/all", auth, carController.getCarsByUserId);
 router.put(
   "/:carId",
   auth,
-  upload.array("images", 10),
+  upload.array("images", 100),
   uploadToCloudinary,
   carController.updateCar
 );

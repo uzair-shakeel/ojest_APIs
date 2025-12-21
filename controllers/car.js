@@ -95,6 +95,21 @@ const getCountryOfManufacturer = (make) => {
   }
   return null;
 };
+
+// New: Upload images only (returns URLs)
+exports.uploadImages = async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: "No images uploaded" });
+    }
+    const urls = req.files.map((file) => file.cloudinaryUrl);
+    res.json({ urls });
+  } catch (error) {
+    console.error("Upload Images Error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
 // Post a new car (Normal user)
 exports.addCar = async (req, res) => {
   try {
@@ -188,102 +203,126 @@ exports.addCar = async (req, res) => {
         .json({ message: "Missing required financial information" });
     }
 
-    const images = req.files.map((file) => file.cloudinaryUrl);
-
-    // Detect and categorize images
-    console.log(`Detecting and categorizing ${images.length} images...`);
-    const imageDetectionController = require("./imageDetection");
-    const categorizedImages = [];
-
-    for (let i = 0; i < images.length; i++) {
-      try {
-        const detectionResult = await imageDetectionController.detectImage(
-          images[i]
-        );
-        categorizedImages.push({
-          url: images[i],
-          category: detectionResult.category || "unknown",
-          detected_label: detectionResult.detected_label,
-          confidence: detectionResult.confidence,
-          index: i,
-        });
-        console.log(
-          `Image ${i + 1}/${images.length} detected as: ${detectionResult.category}`
-        );
-      } catch (error) {
-        console.error(`Failed to detect image ${i + 1}:`, error);
-        // If detection fails, still add the image with unknown category
-        categorizedImages.push({
-          url: images[i],
-          category: "unknown",
-          detected_label: "Unknown",
-          confidence: 0,
-          index: i,
-        });
+    // Combine images from pre-uploaded URLs (req.body.images) and new files (req.files)
+    let images = [];
+    if (req.body.images) {
+      if (Array.isArray(req.body.images)) {
+        images = [...req.body.images];
+      } else if (typeof req.body.images === "string") {
+        images.push(req.body.images);
       }
     }
 
-    console.log(
-      `Image detection complete. Categorized ${categorizedImages.length} images.`
-    );
-
-    // Auto-sort images: Main (first) image stays first, others sorted by category
-    if (categorizedImages.length > 1) {
-      console.log(
-        "Before sort:",
-        categorizedImages.map((img) => ({
-          idx: img.index,
-          cat: img.category,
-          label: img.detected_label,
-        }))
-      );
-      const CATEGORY_PRIORITY = [
-        "exterior",
-        "interior",
-        "dashboard",
-        "wheel",
-        "engine",
-        "documents",
-        "keys",
-      ];
-
-      const mainImage = categorizedImages[0];
-      const otherImages = categorizedImages.slice(1);
-
-      otherImages.sort((a, b) => {
-        const catA = a.category ? a.category.toLowerCase() : "unknown";
-        const catB = b.category ? b.category.toLowerCase() : "unknown";
-
-        let indexA = CATEGORY_PRIORITY.indexOf(catA);
-        let indexB = CATEGORY_PRIORITY.indexOf(catB);
-
-        // If category not in list, put it at the end
-        if (indexA === -1) indexA = 999;
-        if (indexB === -1) indexB = 999;
-
-        return indexA - indexB;
-      });
-
-      // Reconstruct the array
-      const sortedCategorizedImages = [mainImage, ...otherImages];
-
-      // Update indices and rebuild the 'images' string array (critical!)
-      // We must modify the original arrays that will be saved to DB
-      sortedCategorizedImages.forEach((img, idx) => {
-        img.index = idx; // Update index
-      });
-
-      // Replace the original arrays with sorted versions
-      categorizedImages.length = 0; // Clear original
-      images.length = 0; // Clear original
-
-      sortedCategorizedImages.forEach((img) => {
-        categorizedImages.push(img);
-        images.push(img.url);
-      });
-
-      console.log("Images sorted by category priority.");
+    if (req.files && req.files.length > 0) {
+      const newUrls = req.files.map((file) => file.cloudinaryUrl);
+      images = [...images, ...newUrls];
     }
+
+    // Detect and categorize images (BACKGROUND PROCESS)
+    // We respond to the user immediately, and process images asynchronously.
+    // Initial categorizedImages will be just the URLs with status 'processing' or 'unknown'
+
+    // Create initial list with 'pending' status if needed, or just default unknown
+    const categorizedImages = images.map((url, i) => ({
+      url,
+      category: "unknown",
+      detected_label: "Processing...",
+      confidence: 0,
+      index: i
+    }));
+
+    // Trigger background detection
+    (async () => {
+      try {
+        console.log(`Starting background detection for ${images.length} images...`);
+        const imageDetectionController = require("./imageDetection");
+        const finalCategorized = [];
+
+        // Use concurrency limit for detection to avoid overwhelming external API
+        // Simple loop with await is fine for background, but parallel is faster.
+        // Let's do chunks of 5
+        const chunk = (arr, size) => Array.from({ length: Math.ceil(arr.length / size) }, (v, i) => arr.slice(i * size, i * size + size));
+        const batches = chunk(images, 5);
+
+        let globalIndex = 0;
+        for (const batch of batches) {
+          await Promise.all(batch.map(async (url) => {
+            const currentIndex = globalIndex++;
+            try {
+              const detectionResult = await imageDetectionController.detectImage(url);
+              finalCategorized.push({
+                url: url,
+                category: detectionResult.category || "unknown",
+                detected_label: detectionResult.detected_label,
+                confidence: detectionResult.confidence,
+                index: currentIndex
+              });
+            } catch (err) {
+              console.error(`Background detection failed for image ${currentIndex}`, err);
+              finalCategorized.push({
+                url: url,
+                category: "unknown",
+                detected_label: "Unknown",
+                confidence: 0,
+                index: currentIndex
+              });
+            }
+          }));
+        }
+
+        // Sort Logic (duplicated from before)
+        if (finalCategorized.length > 1) {
+          const CATEGORY_PRIORITY = [
+            "exterior", "interior", "dashboard", "wheel", "engine", "documents", "keys"
+          ];
+          // Sort based on priority, keeping original index 0 (main) as main if possible?
+          // Actually, usually Main Image is explicitly set by user as first. 
+          // We should respect User's order for index 0, or sort all?
+          // Previous code sorted all non-main images.
+
+          // Re-find the items by url to ensure we adhere to "Main Image" rule if we want?
+          // Or just sort the results.
+
+          // Let's assume index 0 in 'images' is the main image the user chose.
+          // We should find that one in finalCategorized
+
+          const mainImageUrl = images[0];
+          const mainImageObj = finalCategorized.find(img => img.url === mainImageUrl) || finalCategorized[0];
+          const otherImages = finalCategorized.filter(img => img.url !== mainImageUrl);
+
+          otherImages.sort((a, b) => {
+            const catA = a.category ? a.category.toLowerCase() : "unknown";
+            const catB = b.category ? b.category.toLowerCase() : "unknown";
+            let indexA = CATEGORY_PRIORITY.indexOf(catA);
+            let indexB = CATEGORY_PRIORITY.indexOf(catB);
+            if (indexA === -1) indexA = 999;
+            if (indexB === -1) indexB = 999;
+            return indexA - indexB;
+          });
+
+          // Re-assign to final list
+          const sorted = [mainImageObj, ...otherImages];
+          // Re-index
+          sorted.forEach((img, idx) => img.index = idx);
+
+          // Update the car record with sorted images and categorized info
+          await Car.findByIdAndUpdate(car._id, {
+            images: sorted.map(img => img.url),
+            categorizedImages: sorted
+          });
+          console.log("Background detection and sorting complete.");
+        } else {
+          // Just update categorizedImages
+          await Car.findByIdAndUpdate(car._id, { categorizedImages: finalCategorized });
+        }
+
+      } catch (bgError) {
+        console.error("Background image processing error:", bgError);
+      }
+    })();
+
+    // NOTE: We do NOT await the async IIFE above. We continue to save and respond.
+
 
     // Normalize warranties (may arrive as JSON string from multipart form)
     let parsedWarranties = undefined;
@@ -427,47 +466,86 @@ exports.updateCar = async (req, res) => {
       warranties,
     } = req.body;
 
-    const images =
-      req.files && req.files.length > 0
-        ? req.files.map((file) => file.cloudinaryUrl)
-        : car.images;
+    let images = car.images;
 
-    // Detect and categorize new images if any were uploaded
-    let categorizedImages = car.categorizedImages || [];
+    // Handle new image upload logic (mix of URLs and files)
+    // If we have explicit images in body (URLs), start with those or replace?
+    // Usually update replaces the list.
+    let newImagesList = [];
+
+    // 1. Get URLs from body
+    if (req.body.images) {
+      if (Array.isArray(req.body.images)) {
+        newImagesList = [...req.body.images];
+      } else if (typeof req.body.images === "string") {
+        newImagesList.push(req.body.images);
+      }
+    } else {
+      // If no images in body, keep existing? 
+      // Only if we also have no files. 
+      // But if user deleted all images, they might send empty array?
+      // This logic depends on frontend. Let's assume if body.images is sent, it's the master list.
+      if (!req.files || req.files.length === 0) {
+        newImagesList = car.images; // Keep existing if nothing sent
+      }
+    }
+
+    // 2. Add any new files
     if (req.files && req.files.length > 0) {
-      console.log(`Detecting and categorizing ${req.files.length} new images...`);
-      const imageDetectionController = require("./imageDetection");
-      categorizedImages = [];
+      const newUrls = req.files.map((file) => file.cloudinaryUrl);
+      newImagesList = [...newImagesList, ...newUrls];
+    }
 
-      for (let i = 0; i < images.length; i++) {
+    images = newImagesList;
+
+    // Detect and categorize new images if any were checked/uploaded
+    // Note: re-detecting everything might be expensive if we just reordered.
+    // Optimization: only detect if no category present?
+    // Current logic re-detects everything. For 100 images this could be slow.
+    // But since detection is async loop inside controller, it delays response.
+    // For now, keep existing logic but apply to 'images'.
+
+    let categorizedImages = []; // Re-evaluate all or merge?
+    // The previous logic took 'images' (which were only new files) and appended to car.categorizedImages?
+    // Wait, previous logic: "images = req.files... ? ... : car.images"
+    // Then "if (req.files) ... detect ... categorizedImages = [] ... push new ones"
+    // It seemed to only detect NEW files.
+    // If we use mixed input, we might have some old URLs (already categorized) and some new ones.
+
+    // Simplest approach: Re-build categorized images.
+    // If URL matches existing categorized image, copy it. Else detect.
+
+    const imageDetectionController = require("./imageDetection");
+
+    for (let i = 0; i < images.length; i++) {
+      const url = images[i];
+      // Check if we already have categorization for this URL
+      const existing = car.categorizedImages?.find(img => img.url === url);
+
+      if (existing) {
+        categorizedImages.push({ ...existing, index: i });
+      } else {
+        // New image (from file or new URL), detect it
         try {
-          const detectionResult = await imageDetectionController.detectImage(
-            images[i]
-          );
+          const detectionResult = await imageDetectionController.detectImage(url);
           categorizedImages.push({
-            url: images[i],
+            url: url,
             category: detectionResult.category || "unknown",
             detected_label: detectionResult.detected_label,
             confidence: detectionResult.confidence,
             index: i,
           });
-          console.log(
-            `Image ${i + 1}/${images.length} detected as: ${detectionResult.category}`
-          );
         } catch (error) {
           console.error(`Failed to detect image ${i + 1}:`, error);
           categorizedImages.push({
-            url: images[i],
+            url: url,
             category: "unknown",
             detected_label: "Unknown",
             confidence: 0,
-            index: i,
+            index: i
           });
         }
       }
-      console.log(
-        `Image detection complete. Categorized ${categorizedImages.length} images.`
-      );
     }
 
     let coordinates = car.location.coordinates;
@@ -1107,17 +1185,19 @@ exports.updateCarStatusAdmin = async (req, res) => {
       return res.status(400).json({ message: `Invalid status. Allowed: ${allowed.join(", ")}` });
     }
 
-    const car = await Car.findById(carId);
-    if (!car) {
+    const updatedCar = await Car.findByIdAndUpdate(
+      carId,
+      { status },
+      { new: true }
+    );
+
+    if (!updatedCar) {
       return res.status(404).json({ message: "Car not found" });
     }
 
-    car.status = status;
-    await car.save();
-
     res.json({
       message: "Car status updated successfully",
-      car,
+      car: updatedCar,
     });
   } catch (error) {
     console.error("Error updating car status:", error);

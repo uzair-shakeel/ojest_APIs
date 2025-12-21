@@ -310,8 +310,8 @@ const carSchema = new mongoose.Schema(
           message: "At least 1 image is required.",
         },
         {
-          validator: (value) => value.length <= 10,
-          message: "A car can have a maximum of 10 images.",
+          validator: (value) => value.length <= 100,
+          message: "A car can have a maximum of 100 images.",
         },
       ],
       required: true,
