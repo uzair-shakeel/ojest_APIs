@@ -30,9 +30,12 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3001",
   "http://209.38.211.146",
-  "http://localhost:3001",
   "https://ojest.pl",
   "https://www.ojest.pl",
+  "http://64.227.68.1",
+  "https://64.227.68.1",
+  "http://64.227.68.1:3000",
+  "https://64.227.68.1:3000",
   "https://ojest-client.vercel.app",
   "https://b7e6e2a7a0f3c7f3b3b0c7b8e0f6b7a6c2e.vercel.app",
   "https://ojest-sell-two.vercel.app",
@@ -58,7 +61,7 @@ app.use(
         return callback(null, true);
       }
 
-      if (allowedOrigins.indexOf(origin) === -1) {
+      if (allowedOrigins.indexOf(origin) === -1 && !origin.endsWith(".ojest.pl")) {
         const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
         console.log(msg);
         return callback(new Error(msg), false);
