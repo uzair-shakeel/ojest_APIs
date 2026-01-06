@@ -15,6 +15,7 @@ const chatRoutes = require("./routes/chat");
 const webhookRoutes = require("./routes/webhook");
 const authRoutes = require("./routes/auth");
 const imageDetectionRoutes = require("./routes/imageDetection");
+const vinLookupRoutes = require("./routes/vinLookup");
 
 // Connect to Database
 const { connectDB } = require("./config/connect");
@@ -114,6 +115,7 @@ app.use("/api/buyer-requests", buyerRequestRoutes);
 app.use("/api/seller-offers", sellerOfferRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/image-detection", imageDetectionRoutes);
+app.use("/api/vin-lookup", vinLookupRoutes);
 app.use("/api", webhookRoutes);
 
 // Pass io to car controller
