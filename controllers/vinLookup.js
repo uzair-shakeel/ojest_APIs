@@ -1,7 +1,7 @@
 const https = require("https");
+const crypto = require("crypto");
 
-const API_URL = "https://api.carsxe.com/v1/international-vin-decoder";
-const API_KEY = process.env.CARSXE_API_KEY;
+const API_BASE_URL = "https://api.vincario.com/3.2";
 
 // Helper function to map transmission types
 const mapTransmission = (value) => {
@@ -63,16 +63,35 @@ exports.getCarDetailsByVin = async (req, res) => {
             return res.status(400).json({ error: "Invalid VIN. Must be 17 characters." });
         }
 
-        if (!API_KEY) {
-            console.error("Missing CarsXE API key in backend .env");
-            return res.status(500).json({ error: "API configuration error. Please ensure CARSXE_API_KEY is set in backend .env." });
+        const apiKey = process.env.VINCARIO_API_KEY?.trim();
+        const secretKey = process.env.VINCARIO_SECRET_KEY?.trim();
+
+        if (!apiKey || !secretKey) {
+            console.error("Missing Vincario API configuration in backend .env");
+            return res.status(500).json({ error: "Configuration error. Please ensure VINCARIO_API_KEY and VINCARIO_SECRET_KEY are set in backend .env." });
         }
 
-        console.log(`Backend Looking up VIN with CarsXE: ${vin}`);
+        console.log(`Backend Looking up VIN with Vincario: ${vin}`);
 
-        const url = `${API_URL}?key=${API_KEY}&vin=${vin}`;
+        // Ensure VIN is uppercase for hash generation as per documentation
+        const vinUpper = vin.toUpperCase();
 
-        https.get(url, (apiRes) => {
+        // Generate Control Sum
+        // Formula: substr(sha1("{$vin}|decode|{$apiKey}|{$secretKey}"), 0, 10)
+        // Using 'decode' as the operation ID for the standard decode endpoint
+        const signatureString = `${vinUpper}|decode|${apiKey}|${secretKey}`;
+        const controlSum = crypto.createHash('sha1').update(signatureString).digest('hex').substring(0, 10);
+
+        const url = `${API_BASE_URL}/${apiKey}/${controlSum}/decode/${vinUpper}.json`;
+
+        const options = {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'application/json'
+            }
+        };
+
+        https.get(url, options, (apiRes) => {
             let data = "";
 
             apiRes.on("data", (chunk) => {
@@ -81,54 +100,94 @@ exports.getCarDetailsByVin = async (req, res) => {
 
             apiRes.on("end", () => {
                 try {
+                    // Log response status for debugging
+                    console.log("Vincario Status:", apiRes.statusCode);
+
+                    if (apiRes.statusCode !== 200) {
+                        // Attempt to parse JSON error from body
+                        let errorDetail = data.substring(0, 300);
+                        try {
+                            const errJson = JSON.parse(data);
+                            errorDetail = errJson.error || errJson.message || errorDetail;
+                        } catch (e) { }
+
+                        return res.status(apiRes.statusCode === 404 ? 404 : 502).json({
+                            error: "External API Error",
+                            details: errorDetail
+                        });
+                    }
+
+                    // Check if response is HTML (error page) 
+                    if (data.trim().startsWith("<")) {
+                        console.error("Vincario returned HTML:", data.substring(0, 200));
+                        return res.status(502).json({
+                            error: "Upstream API error: Received HTML instead of JSON",
+                            details: "Possible WAF block or invalid endpoint"
+                        });
+                    }
+
                     const responseData = JSON.parse(data);
 
-                    if (responseData && responseData.success) {
-                        const attributes = responseData.attributes;
+                    // console.log("Vincario Raw Response:", JSON.stringify(responseData));
+
+                    if (responseData && responseData.decode && Array.isArray(responseData.decode)) {
+
+                        // Helper to find value by label
+                        const getValue = (label) => {
+                            const item = responseData.decode.find(item => item.label === label);
+                            return item ? item.value : null;
+                        };
+
+                        // Helper to get kW and convert to HP if needed
+                        const powerKw = parseFloat(getValue("Engine Power (kW)")) || 0;
+                        const powerHp = powerKw ? Math.round(powerKw * 1.34102) : "";
 
                         // Map the API response to our format
                         const carDetails = {
-                            make: attributes.make || "",
-                            model: attributes.model || "",
-                            year: attributes.year?.toString() || "",
-                            engine: (attributes.engine_size || attributes.engine_displacement_cc || attributes.engine_cc || attributes.displacement)?.toString() || "",
-                            fuel: mapFuelType(attributes.fuel_type || attributes.fuel || ""),
-                            transmission: mapTransmission(attributes.transmission || attributes.transmission_type || ""),
-                            driveType: mapDriveType(attributes.drive_type || attributes.drivetrain || ""),
-                            bodyClass: mapBodyType(attributes.body || attributes.body_style || ""),
-                            vin: attributes.vin || vin,
-                            manufacturer: attributes.manufacturer || "",
-                            trim: attributes.series || "",
-                            horsepower: (attributes.horsepower || attributes.engine_power_hp || attributes.power_hp || attributes.max_power_hp)?.toString() || "",
+                            make: getValue("Make") || "",
+                            model: getValue("Model") || "",
+                            year: getValue("Model Year")?.toString() || "",
+                            engine: (getValue("Engine Displacement (ccm)") || getValue("Engine displacement"))?.toString() || "",
+                            fuel: mapFuelType(getValue("Fuel Type - Primary") || getValue("Fuel type") || ""),
+                            transmission: mapTransmission(getValue("Transmission") || ""),
+                            driveType: mapDriveType(getValue("Drive") || ""),
+                            bodyClass: mapBodyType(getValue("Body") || ""),
+                            vin: vin, // Vincario might not return it explicitly in fields, or it's in "VIN" label
+                            manufacturer: getValue("Manufacturer") || "",
+                            trim: getValue("Series") || "",
+                            horsepower: powerHp.toString(), // Use calculated HP or find "Engine Power (hp)"
+
                             engineDetails: [
-                                attributes.engine_manufacturer || attributes.engine_make,
-                                attributes.engine_code,
-                                attributes.engine_cylinders ? `${attributes.engine_cylinders} Cylinders` : null
+                                getValue("Engine (full)") || getValue("Engine Model"),
+                                getValue("Engine Cylinders") ? `${getValue("Engine Cylinders")} Cylinders` : null
                             ].filter(Boolean).join(" "),
-                            color: attributes.color || "",
+
+                            color: "",
                             mileage: "",
-                            country: attributes.plant_country || "",
+                            country: getValue("Plant Country") || "",
                             accidentHistory: "",
                             serviceHistory: "",
-                            type: mapBodyType(attributes.body || attributes.body_style || ""),
+                            type: mapBodyType(getValue("Body") || ""),
+
                             // Additional technical details
-                            engineCode: attributes.engine_code || "",
-                            engineCylinders: attributes.engine_cylinders?.toString() || "",
-                            enginePosition: attributes.engine_position || "",
-                            engineTorque: attributes.engine_torque?.toString() || "",
-                            fuelCapacity: (attributes.fuel_capacity_liters || attributes.fuel_tank_capacity_liters)?.toString() || "",
-                            fuelConsumption: attributes.fuel_consumption_combined_l100km?.toString() || "",
-                            transmission_gears: attributes.gears?.toString() || "",
-                            weight: (attributes.weight_empty_kg || attributes.curb_weight_kg)?.toString() || "",
-                            maxSpeed: attributes.max_speed_kmh?.toString() || "",
-                            acceleration: attributes.acceleration_0_100_kmh_s?.toString() || "",
-                            // Dimensions and other attributes
-                            length: attributes.length_mm?.toString() || "",
-                            width: attributes.width_mm?.toString() || "",
-                            height: attributes.height_mm?.toString() || "",
-                            wheelbase: attributes.wheelbase_mm?.toString() || "",
-                            emissions: attributes.avg_co2_emission_g_km?.toString() || "",
-                            emissionStandard: attributes.emission_standard || "",
+                            engineCode: getValue("Engine Model") || "",
+                            engineCylinders: getValue("Engine Cylinders")?.toString() || "",
+                            enginePosition: getValue("Engine Position") || "",
+                            engineTorque: getValue("Engine Torque (RPM)")?.toString() || "",
+                            fuelCapacity: getValue("Fuel Capacity (l)")?.toString() || "",
+                            fuelConsumption: getValue("Fuel Consumption Combined (l/100km)")?.toString() || "",
+                            transmission_gears: getValue("Number of Gears")?.toString() || "",
+                            weight: (getValue("Max Weight (kg)") || getValue("Weight Empty (kg)"))?.toString() || "",
+                            maxSpeed: getValue("Max Speed (km/h)")?.toString() || "",
+                            acceleration: getValue("Acceleration 0-100 km/h (s)")?.toString() || "",
+
+                            // Dimensions
+                            length: getValue("Length (mm)")?.toString() || "",
+                            width: getValue("Width (mm)")?.toString() || "",
+                            height: getValue("Height (mm)")?.toString() || "",
+                            wheelbase: getValue("Wheelbase (mm)")?.toString() || "",
+                            emissions: (getValue("CO2 Emission (g/km)") || getValue("Average CO2 Emission (g/km)"))?.toString() || "",
+                            emissionStandard: getValue("Emission Standard") || "",
                         };
 
                         return res.json(carDetails);
@@ -136,16 +195,16 @@ exports.getCarDetailsByVin = async (req, res) => {
 
                     return res.status(404).json({
                         error: "Vehicle data not found or invalid VIN",
-                        details: responseData?.message || "Success was false"
+                        details: responseData?.error || "No data returned"
                     });
                 } catch (parseError) {
-                    console.error("Error parsing CarsXE response:", parseError);
+                    console.error("Error parsing Vincario response:", parseError);
                     res.status(500).json({ error: "Error processing vehicle data" });
                 }
             });
         }).on("error", (err) => {
-            console.error("CarsXE API request failed:", err);
-            res.status(500).json({ error: "Failed to fetch vehicle data from CarsXE" });
+            console.error("Vincario API request failed:", err);
+            res.status(500).json({ error: "Failed to fetch vehicle data" });
         });
 
     } catch (error) {
