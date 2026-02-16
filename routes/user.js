@@ -74,7 +74,13 @@ router.put(
 router.patch("/type/:id", auth, userController.updateSellerType);
 // Delete user account
 router.delete("/account", auth, userController.deleteAccount);
-// Sync user route removed - no longer needed with custom auth
+
+// --- Discovery Interactions ---
+router.post("/like/:carId", auth, userController.likeCar);
+router.post("/pass/:carId", auth, userController.passCar);
+router.get("/wishlist/all", auth, userController.getLikedCars);
+router.get("/discovery/interacted", auth, userController.getInteractedCars);
+router.post("/discovery/reset", auth, userController.resetInteractions);
 
 // Export routes
 module.exports = router;

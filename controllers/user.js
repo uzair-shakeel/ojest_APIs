@@ -1004,3 +1004,118 @@ exports.deleteUser = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+// --- Discovery Interactions ---
+
+// Like a car
+exports.likeCar = async (req, res) => {
+  try {
+    const { userId } = req;
+    const { carId } = req.params;
+
+    if (!carId) {
+      return res.status(400).json({ message: "Car ID is required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Add to likedCars if not already there
+    if (!user.likedCars.includes(carId)) {
+      user.likedCars.push(carId);
+      // Remove from passedCars if it exists there
+      user.passedCars = user.passedCars.filter((id) => id.toString() !== carId);
+      await user.save();
+    }
+
+    res.json({ message: "Car liked successfully", likedCars: user.likedCars });
+  } catch (error) {
+    console.error("Error liking car:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Pass a car
+exports.passCar = async (req, res) => {
+  try {
+    const { userId } = req;
+    const { carId } = req.params;
+
+    if (!carId) {
+      return res.status(400).json({ message: "Car ID is required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Add to passedCars if not already there
+    if (!user.passedCars.includes(carId)) {
+      user.passedCars.push(carId);
+      // Remove from likedCars if it exists there
+      user.likedCars = user.likedCars.filter((id) => id.toString() !== carId);
+      await user.save();
+    }
+
+    res.json({ message: "Car passed successfully", passedCars: user.passedCars });
+  } catch (error) {
+    console.error("Error passing car:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Get liked cars (wishlist)
+exports.getLikedCars = async (req, res) => {
+  try {
+    const { userId } = req;
+    const user = await User.findById(userId).populate("likedCars");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json(user.likedCars);
+  } catch (error) {
+    console.error("Error getting liked cars:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Get all interacted cars (liked + passed) for filtering Discovery
+exports.getInteractedCars = async (req, res) => {
+  try {
+    const { userId } = req;
+    const user = await User.findById(userId).select("likedCars passedCars");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json({
+      likedCars: user.likedCars,
+      passedCars: user.passedCars,
+    });
+  } catch (error) {
+    console.error("Error getting interacted cars:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Reset discovery interactions
+exports.resetInteractions = async (req, res) => {
+  try {
+    const { userId } = req;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.likedCars = [];
+    user.passedCars = [];
+    await user.save();
+
+    res.json({ message: "Discovery interactions reset successfully" });
+  } catch (error) {
+    console.error("Error resetting interactions:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
