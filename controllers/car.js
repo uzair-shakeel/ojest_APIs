@@ -181,27 +181,17 @@ exports.addCar = async (req, res) => {
       if (!fi.priceNetto) console.log("Missing: financialInfo.priceNetto");
     }
 
-    // Validate required fields
-    if (
-      !title ||
-      !description ||
-      !make ||
-      !model ||
-      !type ||
-      !condition ||
-      !financialInfo
-    ) {
-      return res.status(400).json({ message: "Missing required fields" });
+    // Validate only the truly required fields
+    if (!title || !description || !make || !model || !type || !condition) {
+      return res.status(400).json({ message: "Missing required fields: title, description, make, model, type, condition" });
     }
-    if (
-      !financialInfo.sellOptions ||
-      !financialInfo.invoiceOptions ||
-      !financialInfo.priceNetto
-    ) {
-      return res
-        .status(400)
-        .json({ message: "Missing required financial information" });
-    }
+
+    // Apply safe defaults to financial info — never reject because of missing sub-fields
+    if (!fi) fi = {};
+    if (!fi.sellOptions) fi.sellOptions = ["Cash"];
+    if (!fi.invoiceOptions) fi.invoiceOptions = ["Private Sale Agreement"];
+    if (!fi.priceNetto) fi.priceNetto = 0;
+    if (!fi.currency) fi.currency = "PLN";
 
     // Combine images from pre-uploaded URLs (req.body.images) and new files (req.files)
     let images = [];
@@ -324,31 +314,38 @@ exports.addCar = async (req, res) => {
     // NOTE: We do NOT await the async IIFE above. We continue to save and respond.
 
 
-    // Normalize warranties (may arrive as JSON string from multipart form)
-    let parsedWarranties = undefined;
-    if (typeof warranties !== "undefined") {
+    // Parse JSON-stringified arrays/objects from FormData
+    const parseJsonField = (val, defaultVal = []) => {
+      if (!val) return defaultVal;
+      if (typeof val === "object") return val; // Already parsed (e.g. from JSON body)
       try {
-        parsedWarranties =
-          typeof warranties === "string" ? JSON.parse(warranties) : warranties;
+        return JSON.parse(val);
       } catch (e) {
-        parsedWarranties = Array.isArray(warranties) ? warranties : [];
+        console.warn(`Failed to parse field:`, e.message);
+        return defaultVal;
       }
-    }
+    };
+
+    const parsedEquipment = parseJsonField(req.body.equipment);
+    const parsedModifications = parseJsonField(req.body.modifications);
+    const parsedExtras = parseJsonField(req.body.extras);
+    const parsedAiSections = parseJsonField(req.body.aiSections);
+    const parsedWarranties = parseJsonField(req.body.warranties);
+    const parsedCarCondition = parseJsonField(req.body.carCondition || req.body.conditionDetails, {});
+
+    console.log("Saving Car with AI Sections:", parsedAiSections.length);
+    console.log("Parsed Car Condition:", Object.keys(parsedCarCondition));
 
     // Process financialInfo to handle possible comma-separated strings
     const processedFinancialInfo = {
       ...fi,
       sellOptions: Array.isArray(fi.sellOptions)
         ? fi.sellOptions
-        : String(fi.sellOptions)
-          .split(",")
-          .map((option) => option.trim()),
+        : String(fi.sellOptions).split(",").map((option) => option.trim()),
       invoiceOptions: Array.isArray(fi.invoiceOptions)
         ? fi.invoiceOptions
-        : String(fi.invoiceOptions)
-          .split(",")
-          .map((option) => option.trim()),
-      priceNetto: parseFloat(fi.priceNetto),
+        : String(fi.invoiceOptions).split(",").map((option) => option.trim()),
+      priceNetto: parseFloat(fi.priceNetto) || 0,
     };
 
     // Normalize isFeatured from multipart (string) or json
@@ -358,8 +355,8 @@ exports.addCar = async (req, res) => {
       createdBy: userId,
       title,
       description,
-      images, // Keep for backward compatibility
-      categorizedImages, // New field with categories
+      images,
+      categorizedImages,
       make,
       model,
       trim,
@@ -378,11 +375,15 @@ exports.addCar = async (req, res) => {
       vin,
       country,
       countryOfManufacturer: getCountryOfManufacturer(make),
-      carCondition: carCondition || {},
+      carCondition: parsedCarCondition,
       warranties: parsedWarranties,
+      equipment: parsedEquipment,
+      modifications: parsedModifications,
+      extras: parsedExtras,
+      aiSections: parsedAiSections,
       financialInfo: {
         ...processedFinancialInfo,
-        sellerType: user.sellerType, // Sync with user's sellerType
+        sellerType: user.sellerType,
       },
       location: user.location,
       status: "Pending",

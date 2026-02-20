@@ -316,17 +316,7 @@ const carSchema = new mongoose.Schema(
     },
     images: {
       type: [String],
-      validate: [
-        {
-          validator: (value) => value.length >= 1,
-          message: "At least 1 image is required.",
-        },
-        {
-          validator: (value) => value.length <= 100,
-          message: "A car can have a maximum of 100 images.",
-        },
-      ],
-      required: true,
+      default: [],
     },
     categorizedImages: {
       type: [
@@ -395,15 +385,15 @@ const carSchema = new mongoose.Schema(
     },
     drivetrain: {
       type: String,
-      enum: ["FWD", "RWD", "AWD", "4WD", "2WD"],
+      trim: true,
     },
     transmission: {
       type: String,
-      enum: ["Manual", "Automatic", "Semi-Automatic"],
+      trim: true,
     },
     fuel: {
       type: String,
-      enum: ["Petrol", "Diesel", "Electric", "Hybrid"],
+      trim: true,
     },
     engine: {
       type: String,
@@ -438,27 +428,22 @@ const carSchema = new mongoose.Schema(
     carCondition: {
       interior: {
         type: String,
-        enum: ["New", "Very Good", "Good", "Normal", "Bad"],
         trim: true,
       },
       mechanical: {
         type: String,
-        enum: ["New", "Very Good", "Good", "Normal", "Bad"],
         trim: true,
       },
       paintandBody: {
         type: String,
-        enum: ["New", "Very Good", "Good", "Normal", "Bad"],
         trim: true,
       },
       frameandUnderbody: {
         type: String,
-        enum: ["New", "Very Good", "Good", "Normal", "Bad"],
         trim: true,
       },
       overall: {
         type: String,
-        enum: ["New", "Very Good", "Good", "Normal", "Bad"],
         trim: true,
       },
     },
@@ -482,28 +467,51 @@ const carSchema = new mongoose.Schema(
     financialInfo: {
       sellOptions: {
         type: [String],
-        required: true,
-        enum: ["Long term rental", "Financing", "Lease", "Cash"],
+        default: ["Cash"],
       },
       invoiceOptions: {
         type: [String],
-        required: true,
-        enum: ["Invoice", "Selling Agreement", "Invoice VAT"],
+        default: ["Private Sale Agreement"],
       },
       sellerType: {
         type: String,
-        required: true,
-        enum: ["private", "company"],
+        default: "private",
       },
       priceNetto: {
         type: Number,
-        required: true,
-        trim: true,
+        default: 0,
       },
       priceWithVat: {
         type: Number,
-        trim: true,
       },
+      currency: {
+        type: String,
+        default: "PLN",
+      },
+    },
+    // Equipment & extras from wizard steps
+    equipment: {
+      type: [String],
+      default: [],
+    },
+    modifications: {
+      type: [String],
+      default: [],
+    },
+    extras: {
+      type: [String],
+      default: [],
+    },
+    // AI-generated listing sections (7 sections from Grok API)
+    aiSections: {
+      type: [
+        {
+          heading: { type: String },
+          content: { type: String },
+          source_tags: { type: [String], default: [] },
+        },
+      ],
+      default: [],
     },
     location: {
       type: { type: String, default: "Point" },
