@@ -256,7 +256,11 @@ const messageSchema = new mongoose.Schema({
   },
   content: {
     type: String,
-    required: true,
+    default: "",
+  },
+  attachments: {
+    type: [mongoose.Schema.Types.Mixed],
+    default: [],
   },
   seenBy: [
     {
@@ -657,8 +661,14 @@ const sellerOfferSchema = new mongoose.Schema(
 
 // Create models only if they haven't been compiled yet
 const User = mongoose.models.User || mongoose.model("User", userSchema);
-const Message =
-  mongoose.models.Message || mongoose.model("Message", messageSchema);
+// For development: force re-compilation of models to pick up schema changes
+if (process.env.NODE_ENV === "development" || !process.env.NODE_ENV) {
+  delete mongoose.models.Message;
+  delete mongoose.models.Chat;
+  delete mongoose.models.Car;
+}
+
+const Message = mongoose.models.Message || mongoose.model("Message", messageSchema);
 const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
 const Car = mongoose.models.Car || mongoose.model("Car", carSchema);
 const BuyerRequest =

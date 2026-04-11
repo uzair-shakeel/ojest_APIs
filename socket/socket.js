@@ -26,26 +26,37 @@ module.exports = (io) => {
     // Handle new message
     socket.on("sendMessage", async (data) => {
       try {
-        const { chatId, content, senderId } = data;
+        const { chatId, content, senderId, attachments, tempId } = data;
+        console.log("📩 Incoming sendMessage:", { chatId, senderId, content, attachmentsCount: attachments?.length });
 
-        if (!chatId || !content || !senderId) {
+        if (!chatId || !senderId) {
           console.log("Missing required fields for message");
           return;
         }
 
+        // Debug schema
+        if (Message && Message.schema && Message.schema.paths.attachments) {
+          console.log("🔍 [DEBUG] Backend Message.attachments schema type:", Message.schema.paths.attachments.constructor.name);
+        }
+
+        console.log("🔍 [DEBUG] attachments[0]:", attachments[0], typeof attachments[0]);
+
         // Create new message
-        const message = new Message({
+        const messageData = {
           chatId,
           sender: senderId,
-          content,
-        });
+          content: content || "",
+          attachments: Array.isArray(attachments) ? attachments : [],
+        };
+        
+        const message = new Message(messageData);
 
         await message.save();
 
         // Update chat's last message
         await Chat.findByIdAndUpdate(chatId, {
           lastMessage: {
-            content,
+            content: content || "",
             sender: senderId,
             timestamp: new Date(),
           },
@@ -58,15 +69,24 @@ module.exports = (io) => {
           return;
         }
 
+        // Get sender info
+        const sender = await User.findById(senderId).select("firstName profilePicture");
+
         // Emit message to all participants (rooms are joined by string userId)
         chat.participants.forEach((participantId) => {
           const roomId = String(participantId);
           io.to(roomId).emit("newMessage", {
             chatId,
+            tempId,
             message: {
               id: message._id,
-              content,
-              sender: senderId,
+              content: content || "",
+              sender: {
+                _id: senderId,
+                firstName: sender?.firstName || "User",
+                profilePicture: sender?.profilePicture || ""
+              },
+              attachments: attachments || [],
               timestamp: message.createdAt,
             },
           });
@@ -75,6 +95,12 @@ module.exports = (io) => {
         console.log(`Message sent to chat ${chatId}`);
       } catch (error) {
         console.error("Error sending message:", error);
+        console.log("Current data for error report:", { chatId: data?.chatId, tempId: data?.tempId });
+        socket.emit("error", {
+          message: "Failed to send message",
+          details: error.message,
+          tempId: data?.tempId
+        });
       }
     });
 
