@@ -4,6 +4,45 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Analyze images using GPT-4 Vision
+async function analyzeImagesWithVision(imageUrls) {
+  if (!imageUrls || imageUrls.length === 0) {
+    return null;
+  }
+
+  const imageContents = imageUrls.map(url => ({
+    type: "image_url",
+    image_url: { url: url }
+  }));
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "You are a car image analysis expert. Analyze the provided car images and extract factual visual information. Return a JSON object with these fields:\n- exterior_color: the visible exterior color\n- interior_color: visible interior color if shown\n- body_type: sedan, SUV, coupe, etc.\n- visible_condition: apparent condition (excellent, good, fair, poor)\n- visible_features: array of visible equipment/features (e.g., sunroof, alloy wheels, LED lights)\n- visible_defects: array of any visible scratches, dents, rust, or damage\n- mileage_visible: odometer reading if clearly visible\n- additional_notes: any other relevant visual observations\n\nBe factual and only report what you can clearly see."
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Analyze these car images and provide factual visual details:" },
+            ...imageContents
+          ]
+        }
+      ],
+      max_tokens: 1500,
+      response_format: { type: "json_object" }
+    });
+
+    const result = JSON.parse(response.choices[0].message.content);
+    return result;
+  } catch (error) {
+    console.error("[Vision Analysis] Error analyzing images:", error);
+    return null;
+  }
+}
+
 const SYSTEM_PROMPT = `
 OJEST — UNIVERSAL LISTING PROMPT (NEW + USED • ALL MARKETS • ICE/EV/HEV/PHEV/MHEV)
 
@@ -177,20 +216,50 @@ exports.generateListing = async (req, res) => {
       return res.status(400).json({ error: "Input data is required" });
     }
 
+    // Extract images from car_listing if present
+    const carListing = inputData.car_listing || inputData;
+    const imageUrls = carListing.images || [];
+
+    // Analyze images with vision if URLs are provided
+    let visionAnalysis = null;
+    if (imageUrls.length > 0) {
+      visionAnalysis = await analyzeImagesWithVision(imageUrls);
+    }
+
+    // Merge vision analysis into input data as photo_claims
+    const enrichedData = {
+      ...inputData,
+      photo_claims: visionAnalysis || inputData.photo_claims || {}
+    };
+
     const response = await openai.chat.completions.create({
       model: "gpt-5.2",
       messages: [
         { role: "developer", content: SYSTEM_PROMPT },
-        { role: "user", content: JSON.stringify(inputData) },
+        { role: "user", content: JSON.stringify(enrichedData) },
       ],
       reasoning_effort: "xhigh",
     });
 
+    // Log exact raw response
+    console.log("========== RAW API RESPONSE ==========");
+    console.log(JSON.stringify(response, null, 2));
+    console.log("========== END RAW RESPONSE ==========");
+    console.log("\n========== GENERATED LISTING CONTENT ==========");
+    console.log(response.choices[0].message.content);
+    console.log("========== END LISTING CONTENT ==========");
+
     const generatedListing = response.choices[0].message.content;
 
-    res.json({ listing: generatedListing });
+    res.json({
+      listing: generatedListing,
+      vision_analysis: visionAnalysis,
+      success: true
+    });
   } catch (error) {
-    console.error("Error generating listing:", error);
-    res.status(500).json({ error: "Failed to generate listing" });
+    console.error("========== API ERROR ==========");
+    console.error(error);
+    console.error("========== END ERROR ==========");
+    res.status(500).json({ error: "Failed to generate listing", details: error.message });
   }
 };
