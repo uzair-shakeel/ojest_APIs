@@ -540,6 +540,10 @@ const carSchema = new mongoose.Schema(
   }
 );
 
+// Indexes
+carSchema.index({ status: 1, isFeatured: -1, createdAt: -1 });
+carSchema.index({ "location.coordinates": "2dsphere" });
+
 // Buyer Request Schema
 const buyerRequestSchema = new mongoose.Schema(
   {

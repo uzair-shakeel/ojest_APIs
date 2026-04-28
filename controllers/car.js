@@ -404,7 +404,9 @@ exports.getCarsByUserId = async (req, res) => {
     const { userId } = req; // Use authenticated user ID for security
 
     // console.log("userId", userId);
-    const cars = await Car.find({ createdBy: userId });
+    const cars = await Car.find({ createdBy: userId })
+      .select("-aiSections -categorizedImages -equipment -modifications")
+      .lean();
     // Don't return 404 for empty results, just return empty array
     // console.log("cars", cars);
     res.json(cars);
@@ -704,7 +706,11 @@ exports.deleteCar = async (req, res) => {
 // Get all cars (Public)
 exports.getAllCars = async (req, res) => {
   try {
-    const cars = await Car.find({ status: "Approved" }).populate(
+    const cars = await Car.find({ status: "Approved" })
+      .select('-aiSections -categorizedImages -equipment -modifications -extras -warranties')
+      .lean()
+      .limit(100)
+      .populate(
       "createdBy",
       "firstName lastName"
     );
@@ -717,7 +723,11 @@ exports.getAllCars = async (req, res) => {
 // Get featured cars (Public)
 exports.getFeaturedCars = async (req, res) => {
   try {
-    const cars = await Car.find({ isFeatured: true, status: "Approved" }).sort({
+    const cars = await Car.find({ isFeatured: true, status: "Approved" })
+      .select('-aiSections -categorizedImages -equipment -modifications -extras -warranties')
+      .lean()
+      .limit(50)
+      .sort({
       createdAt: -1,
     });
     res.status(200).json(cars);
@@ -873,7 +883,11 @@ exports.searchCars = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     const totalCars = await Car.countDocuments(query);
-    const cars = await Car.find(query).skip(skip).limit(limitNum);
+    const cars = await Car.find(query)
+      .select('-aiSections -categorizedImages -equipment -modifications -extras -warranties')
+      .lean()
+      .skip(skip)
+      .limit(limitNum);
 
     // DEBUG: Log results
     console.log(`🔍 searchCars - Found ${totalCars} total cars, returning ${cars.length} cars`);
@@ -933,7 +947,10 @@ exports.getRecommendedCars = async (req, res) => {
       },
     ];
 
-    const recommendedCars = await Car.find(query);
+    const recommendedCars = await Car.find(query)
+      .select('-aiSections -categorizedImages -equipment -modifications -extras -warranties')
+      .lean()
+      .limit(20);
     if (recommendedCars.length === 0) {
       return res.status(404).json({ message: "No recommended cars found" });
     }
