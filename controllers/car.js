@@ -707,14 +707,12 @@ exports.deleteCar = async (req, res) => {
 exports.getAllCars = async (req, res) => {
   try {
     const cars = await Car.find({ status: "Approved" })
-      .select('-aiSections -categorizedImages -equipment -modifications -extras -warranties')
+      .select("-aiSections -categorizedImages -equipment -modifications -extras -warranties")
       .lean()
-      .limit(100)
-      .populate(
-      "createdBy",
-      "firstName lastName"
-    );
-    res.status(200).json(cars); // Returns an array of cars
+      .sort({ createdAt: -1 })
+      .limit(100);
+    res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
+    res.status(200).json(cars);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -739,12 +737,12 @@ exports.getFeaturedCars = async (req, res) => {
 // Get a single car by ID (Public)
 exports.getCarById = async (req, res) => {
   try {
-    console.log("req.params:", req.params);
     const { carId } = req.params;
-    const car = await Car.findById(carId);
+    const car = await Car.findById(carId).lean();
     if (!car || car.status !== "Approved") {
       return res.status(404).json({ message: "Car not found" });
     }
+    res.set("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
     res.json(car);
   } catch (error) {
     console.error("Get Car By ID Error:", error);
@@ -816,12 +814,16 @@ exports.searchCars = async (req, res) => {
       serviceHistory,
       accidentHistory,
       countryOfManufacturer,
+      country,
+      color,
+      minPrice,
+      maxPrice,
+      minEngine,
+      maxEngine,
+      sortBy,
       page = 1,
-      limit = 10,
+      limit = 12,
     } = req.query;
-
-    // DEBUG: Log country filter parameter
-    console.log("🔍 searchCars - countryOfManufacturer param:", countryOfManufacturer);
 
     let query = {};
 
@@ -853,12 +855,19 @@ exports.searchCars = async (req, res) => {
     if (accidentHistory) query.accidentHistory = accidentHistory;
     if (countryOfManufacturer) {
       query.countryOfManufacturer = countryOfManufacturer;
-      console.log("✅ Country filter applied to query:", countryOfManufacturer);
+    }
+    if (country) query.country = country;
+    if (color) {
+      query.color = { $regex: `^${String(color).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" };
     }
 
     // Year range filter
     if (yearFrom && yearTo) {
       query.year = { $gte: yearFrom, $lte: yearTo };
+    } else if (yearFrom) {
+      query.year = { ...(query.year || {}), $gte: yearFrom };
+    } else if (yearTo) {
+      query.year = { ...(query.year || {}), $lte: yearTo };
     }
 
     // Mileage filter (support range)
@@ -872,37 +881,101 @@ exports.searchCars = async (req, res) => {
       }
     }
 
+    // Price filter
+    if (minPrice || maxPrice) {
+      query["financialInfo.priceNetto"] = {};
+      if (minPrice) query["financialInfo.priceNetto"].$gte = parseFloat(minPrice);
+      if (maxPrice) query["financialInfo.priceNetto"].$lte = parseFloat(maxPrice);
+    }
+
+    // Engine capacity (stored as string) via $expr
+    const engineClauses = [];
+    if (minEngine !== undefined && minEngine !== "") {
+      engineClauses.push({
+        $gte: [
+          { $convert: { input: "$engine", to: "int", onError: 0, onNull: 0 } },
+          parseInt(minEngine, 10),
+        ],
+      });
+    }
+    if (maxEngine !== undefined && maxEngine !== "") {
+      engineClauses.push({
+        $lte: [
+          { $convert: { input: "$engine", to: "int", onError: 0, onNull: 0 } },
+          parseInt(maxEngine, 10),
+        ],
+      });
+    }
+    if (engineClauses.length) {
+      query.$expr = engineClauses.length === 1 ? engineClauses[0] : { $and: engineClauses };
+    }
+
     // Only approved cars for public search
     query.status = "Approved";
 
-    // DEBUG: Log the complete query
-    console.log("🔍 searchCars - Complete query:", JSON.stringify(query, null, 2));
-
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 12));
     const skip = (pageNum - 1) * limitNum;
 
-    const totalCars = await Car.countDocuments(query);
-    const cars = await Car.find(query)
-      .select('-aiSections -categorizedImages -equipment -modifications -extras -warranties')
-      .lean()
-      .skip(skip)
-      .limit(limitNum);
-
-    // DEBUG: Log results
-    console.log(`🔍 searchCars - Found ${totalCars} total cars, returning ${cars.length} cars`);
-    if (countryOfManufacturer && cars.length > 0) {
-      console.log("🔍 Sample car countryOfManufacturer values:",
-        cars.slice(0, 3).map(c => ({ make: c.make, country: c.countryOfManufacturer }))
-      );
+    // Sort mapping (geospatial $nearSphere already implies distance order)
+    let sort = { isFeatured: -1, createdAt: -1 };
+    switch (sortBy) {
+      case "lowest-price":
+        sort = { "financialInfo.priceNetto": 1 };
+        break;
+      case "highest-price":
+        sort = { "financialInfo.priceNetto": -1 };
+        break;
+      case "lowest-mileage":
+        sort = { mileage: 1 };
+        break;
+      case "highest-mileage":
+        sort = { mileage: -1 };
+        break;
+      case "newest-year":
+        sort = { year: -1 };
+        break;
+      case "oldest-year":
+        sort = { year: 1 };
+        break;
+      case "newest-listed":
+        sort = { createdAt: -1 };
+        break;
+      case "oldest-listed":
+        sort = { createdAt: 1 };
+        break;
+      case "best-match":
+      default:
+        sort = { isFeatured: -1, createdAt: -1 };
+        break;
     }
 
+    // $nearSphere cannot be combined with an explicit sort in some cases
+    const useGeoSort = Boolean(longitude && latitude) && (!sortBy || sortBy === "best-match");
+
+    const [totalCars, cars] = await Promise.all([
+      Car.countDocuments(query),
+      useGeoSort
+        ? Car.find(query)
+            .select("-aiSections -categorizedImages -equipment -modifications -extras -warranties")
+            .lean()
+            .skip(skip)
+            .limit(limitNum)
+        : Car.find(query)
+            .select("-aiSections -categorizedImages -equipment -modifications -extras -warranties")
+            .lean()
+            .sort(sort)
+            .skip(skip)
+            .limit(limitNum),
+    ]);
+
+    res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
     res.json({
       cars,
       total: totalCars,
       page: pageNum,
       limit: limitNum,
-      totalPages: Math.ceil(totalCars / limitNum),
+      totalPages: Math.ceil(totalCars / limitNum) || 1,
     });
   } catch (error) {
     console.error("Search Cars Error:", error);
@@ -922,16 +995,16 @@ exports.getRecommendedCars = async (req, res) => {
       return res.status(400).json({ message: "Car ID is required" });
     }
 
-    const car = await Car.findById(carId);
+    const car = await Car.findById(carId).lean();
     if (!car) {
       return res.status(404).json({ message: "Car not found" });
     }
 
     const { make, model, trim, financialInfo } = car;
-    const priceNetto = financialInfo.priceNetto;
+    const priceNetto = financialInfo?.priceNetto || 0;
 
     let query = {
-      _id: { $ne: carId }, // Exclude the current car
+      _id: { $ne: carId },
       status: "Approved",
     };
 
@@ -948,11 +1021,12 @@ exports.getRecommendedCars = async (req, res) => {
     ];
 
     const recommendedCars = await Car.find(query)
-      .select('-aiSections -categorizedImages -equipment -modifications -extras -warranties')
+      .select("-aiSections -categorizedImages -equipment -modifications -extras -warranties")
       .lean()
       .limit(20);
+
     if (recommendedCars.length === 0) {
-      return res.status(404).json({ message: "No recommended cars found" });
+      return res.json([]);
     }
 
     res.json(recommendedCars);
