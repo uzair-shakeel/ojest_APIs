@@ -152,6 +152,17 @@ router.post("/:chatId/mark-seen", auth, async (req, res) => {
     const userObjectId = new mongoose.Types.ObjectId(userId);
     const chatObjectId = new mongoose.Types.ObjectId(chatId);
 
+    const chat = await Chat.findById(chatObjectId).select("participants");
+    if (!chat) {
+      return res.status(404).json({ message: "Chat not found" });
+    }
+    const isParticipant = (chat.participants || []).some(
+      (p) => String(p) === String(userId)
+    );
+    if (!isParticipant) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
     // Update all messages in this chat from other participants to include user in seenBy
     const result = await Message.updateMany(
       {

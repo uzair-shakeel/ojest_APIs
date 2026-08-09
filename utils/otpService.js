@@ -99,7 +99,7 @@ const sendEmailOTP = async (email, otp) => {
     if (error) {
       throw new Error(error.message || "Resend send failed");
     }
-    console.log(`${otp} Email sent successfully to ${email}, ID: ${data?.id}`);
+    console.log(`Email sent successfully to ${email}, ID: ${data?.id}`);
     return { success: true, messageId: data?.id };
   } catch (error) {
     console.error("Email sending error:", error);

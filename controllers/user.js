@@ -4,13 +4,13 @@ const { User } = require("../models");
 // Get all users (Admin route)
 exports.getAllUsers = async (req, res) => {
   try {
-    const { userId } = req;
-    const user = await User.findById(userId);
-    // if (!user || user.role !== 'admin') {
-    //   return res.status(403).json({ message: 'Access denied. Admins only.' });
-    // }
+    if (!req.user || req.user.role !== "admin") {
+      return res.status(403).json({ message: "Access denied. Admins only." });
+    }
 
-    const users = await User.find();
+    const users = await User.find().select(
+      "-password -phoneVerificationOTP -resetPasswordToken -resetPasswordExpires"
+    );
     res.json(users);
   } catch (error) {
     console.error("Error getting all users:", error);
@@ -80,7 +80,7 @@ exports.getPublicUserInfo = async (req, res) => {
       rating: user.rating,
       totalSales: user.totalSales,
       memberSince: user.createdAt,
-      phoneNumbers: user.phoneNumbers,
+      // phoneNumbers intentionally omitted from public profile
       socialMedia: {
         instagram: user?.socialMedia?.instagram || "",
         facebook: user?.socialMedia?.facebook || "",
@@ -164,14 +164,29 @@ exports.updateProfile = async (req, res) => {
         }
       }
     }
-    console.log("[updateProfile] Processed update data:", updateData);
+    console.log("[updateProfile] Processed update data keys:", Object.keys(updateData));
 
-    // Remove sensitive fields that shouldn't be updated directly
-    delete updateData.password;
-    delete updateData.email;
-    delete updateData.phoneNumber;
-    delete updateData.role;
-    delete updateData.blocked;
+    // Allowlist only safe profile fields (prevents privilege escalation via mass assignment)
+    const allowedFields = [
+      "firstName",
+      "lastName",
+      "companyName",
+      "description",
+      "sellerType",
+      "brands",
+      "location",
+      "phoneNumbers",
+      "socialMedia",
+      "image",
+      "profilePicture",
+    ];
+    const sanitized = {};
+    for (const key of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(updateData, key)) {
+        sanitized[key] = updateData[key];
+      }
+    }
+    updateData = sanitized;
 
     // Add image if uploaded (prefer Cloudinary URL)
     if (req.file) {
@@ -286,12 +301,30 @@ exports.updateProfileCustom = async (req, res) => {
       }
     }
 
-    // Remove sensitive fields that shouldn't be updated directly
-    delete updateData.password;
-    delete updateData.role;
-    delete updateData.blocked;
+    // Allowlist only safe onboarding fields
+    const allowedFields = [
+      "firstName",
+      "lastName",
+      "companyName",
+      "description",
+      "sellerType",
+      "brands",
+      "location",
+      "phoneNumbers",
+      "socialMedia",
+      "image",
+      "profilePicture",
+      "email",
+    ];
+    const sanitized = {};
+    for (const key of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(updateData, key)) {
+        sanitized[key] = updateData[key];
+      }
+    }
+    updateData = sanitized;
 
-    console.log("[updateProfileCustom] Final updateData:", updateData);
+    console.log("[updateProfileCustom] Final updateData keys:", Object.keys(updateData));
 
     // Add image if uploaded (prefer Cloudinary URL)
     if (req.file) {
@@ -344,15 +377,22 @@ exports.updateSellerType = async (req, res) => {
     const { id } = req.params;
     const { sellerType, brands } = req.body;
 
-    const updateData = { sellerType };
-    if (brands) {
-      updateData.brands = brands;
+    // IDOR prevention: only self or admin
+    if (
+      String(id) !== String(req.userId) &&
+      req.user?.role !== "admin"
+    ) {
+      return res.status(403).json({ message: "Access denied" });
     }
+
+    const updateData = {};
+    if (sellerType !== undefined) updateData.sellerType = sellerType;
+    if (brands !== undefined) updateData.brands = brands;
 
     const updatedUser = await User.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
-    }).select("-password");
+    }).select("-password -phoneVerificationOTP -resetPasswordToken");
 
     if (!updatedUser) {
       return res.status(404).json({ message: "User not found" });
@@ -433,11 +473,14 @@ exports.getAllUsersForAdmin = async (req, res) => {
     const query = {};
 
     if (search) {
+      const safeSearch = String(search)
+        .slice(0, 100)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       query.$or = [
-        { firstName: { $regex: search, $options: "i" } },
-        { lastName: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { phoneNumber: { $regex: search, $options: "i" } },
+        { firstName: { $regex: safeSearch, $options: "i" } },
+        { lastName: { $regex: safeSearch, $options: "i" } },
+        { email: { $regex: safeSearch, $options: "i" } },
+        { phoneNumber: { $regex: safeSearch, $options: "i" } },
       ];
     }
 
@@ -884,11 +927,14 @@ exports.getAllUsersForAdmin = async (req, res) => {
     if (req.query.blocked !== undefined)
       filter.blocked = req.query.blocked === "true";
     if (req.query.search) {
+      const safeSearch = String(req.query.search)
+        .slice(0, 100)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.$or = [
-        { firstName: { $regex: req.query.search, $options: "i" } },
-        { lastName: { $regex: req.query.search, $options: "i" } },
-        { email: { $regex: req.query.search, $options: "i" } },
-        { companyName: { $regex: req.query.search, $options: "i" } },
+        { firstName: { $regex: safeSearch, $options: "i" } },
+        { lastName: { $regex: safeSearch, $options: "i" } },
+        { email: { $regex: safeSearch, $options: "i" } },
+        { companyName: { $regex: safeSearch, $options: "i" } },
       ];
     }
 
@@ -896,7 +942,7 @@ exports.getAllUsersForAdmin = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .select("-__v");
+      .select("-password -phoneVerificationOTP -resetPasswordToken -resetPasswordExpires -__v");
 
     const totalUsers = await User.countDocuments(filter);
     const totalPages = Math.ceil(totalUsers / limit);

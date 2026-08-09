@@ -1,7 +1,6 @@
 // backend/routes/car.js
 const express = require("express");
-const { Car } = require("../models");
-const { auth, getAuth } = require("../middlewares/auth");
+const { auth, admin, getAuth } = require("../middlewares/auth");
 const router = express.Router();
 const carController = require("../controllers/car");
 const {
@@ -9,7 +8,6 @@ const {
   uploadToCloudinary,
 } = require("../middlewares/uploadMiddleware");
 
-// Middleware to attach auth data to req.auth
 router.use((req, res, next) => {
   req.auth = getAuth(req);
   next();
@@ -18,34 +16,21 @@ router.use((req, res, next) => {
 // Public Routes
 router.get("/search", carController.searchCars);
 router.get("/recommended/:carId", carController.getRecommendedCars);
+
+// Admin Routes — before /:carId
+router.get("/admin/stats", auth, admin, carController.getCarStats);
+router.get("/admin/all", auth, admin, carController.getAllCarsForAdmin);
+router.patch("/admin/:carId/status", auth, admin, carController.updateCarStatusAdmin);
+router.delete("/admin/:carId", auth, admin, carController.deleteCarAdmin);
+
+router.get("/my-cars/all", auth, carController.getCarsByUserId);
 router.get("/", carController.getAllCars);
 router.get("/:carId", carController.getCarById);
 
-// @Admin Routes - NO AUTH REQUIRED FOR ADMIN PANEL
-// Get car statistics for admin dashboard
-router.get("/admin/stats", carController.getCarStats);
-// Get all cars for admin with pagination and filtering
-router.get("/admin/all", carController.getAllCarsForAdmin);
-// Update car status (admin)
-router.patch("/admin/:carId/status", carController.updateCarStatusAdmin);
-// Delete car (admin only)
-router.delete("/admin/:carId", carController.deleteCarAdmin);
-
-// @Admin Routes - NO AUTH REQUIRED FOR ADMIN PANEL
-// Get car statistics for admin dashboard
-router.get("/admin/stats", carController.getCarStats);
-// Get all cars for admin with pagination and filtering
-router.get("/admin/all", carController.getAllCarsForAdmin);
-// Update car status (admin)
-router.patch("/admin/:carId/status", carController.updateCarStatusAdmin);
-// Delete car (admin only)
-router.delete("/admin/:carId", carController.deleteCarAdmin);
-
-// Normal User Routes
 router.post(
   "/upload-images",
   auth,
-  upload.array("images", 100),
+  upload.array("images", 20),
   uploadToCloudinary,
   carController.uploadImages
 );
@@ -53,22 +38,19 @@ router.post(
 router.post(
   "/",
   auth,
-  upload.array("images", 100),
+  upload.array("images", 20),
   uploadToCloudinary,
   carController.addCar
-); // Max 100 images
+);
 
-router.get("/my-cars/all", auth, carController.getCarsByUserId);
 router.put(
   "/:carId",
   auth,
-  upload.array("images", 100),
+  upload.array("images", 20),
   uploadToCloudinary,
   carController.updateCar
 );
 router.delete("/:carId", auth, carController.deleteCar);
-
-// Admin Routes
-router.put("/status/:carId", auth, carController.updateCarStatus);
+router.put("/status/:carId", auth, admin, carController.updateCarStatus);
 
 module.exports = router;

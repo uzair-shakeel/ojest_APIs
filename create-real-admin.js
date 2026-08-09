@@ -24,13 +24,21 @@ async function createRealAdminUser() {
       return;
     }
 
-    // Hash password
+    // Hash password — MUST come from env (never hardcode)
+    const adminPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+    if (!adminPassword || adminPassword.length < 12) {
+      console.error(
+        "❌ Set ADMIN_BOOTSTRAP_PASSWORD (min 12 chars) in the environment before running this script."
+      );
+      process.exit(1);
+    }
+
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash("admin123", salt);
+    const hashedPassword = await bcrypt.hash(adminPassword, salt);
 
     // Create admin user
     const adminUser = new User({
-      email: "admin@ojest.com",
+      email: process.env.ADMIN_BOOTSTRAP_EMAIL || "admin@ojest.com",
       password: hashedPassword,
       firstName: "Admin",
       lastName: "User",
@@ -43,7 +51,7 @@ async function createRealAdminUser() {
     await adminUser.save();
     console.log("✅ Real admin user created successfully!");
     console.log(`   Email: ${adminUser.email}`);
-    console.log(`   Password: admin123`);
+    console.log(`   Password: (from ADMIN_BOOTSTRAP_PASSWORD)`);
     console.log(`   Role: ${adminUser.role}`);
     console.log(`   Approval Status: ${adminUser.approvalStatus}`);
     console.log(`   Password Hash: ${adminUser.password ? "Set" : "Not set"}`);

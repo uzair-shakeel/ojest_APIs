@@ -51,6 +51,30 @@ exports.detectImageCategory = async (req, res) => {
             }
         }
 
+        // SSRF protection: only allow Cloudinary (and configured CDN) hosts
+        try {
+            const parsed = new URL(normalizedUrl);
+            const host = parsed.hostname.toLowerCase();
+            const allowedHosts = [
+                "res.cloudinary.com",
+                "cloudinary.com",
+            ];
+            const extra = (process.env.ALLOWED_IMAGE_HOSTS || "")
+                .split(",")
+                .map((h) => h.trim().toLowerCase())
+                .filter(Boolean);
+            const ok =
+                allowedHosts.some((h) => host === h || host.endsWith(`.${h}`)) ||
+                extra.some((h) => host === h || host.endsWith(`.${h}`));
+            if (!ok || parsed.protocol !== "https:") {
+                return res.status(400).json({
+                    error: "image_url host is not allowed",
+                });
+            }
+        } catch {
+            return res.status(400).json({ error: "Invalid image_url" });
+        }
+
         // Ensure Cloudinary URLs are properly formatted
         if (
             normalizedUrl.includes("cloudinary.com") &&

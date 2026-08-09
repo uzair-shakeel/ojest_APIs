@@ -224,7 +224,8 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 
 // Method to generate OTP
 userSchema.methods.generateOTP = function () {
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const crypto = require("crypto");
+  const otp = crypto.randomInt(100000, 1000000).toString();
   this.phoneVerificationOTP = otp;
   this.otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
   return otp;

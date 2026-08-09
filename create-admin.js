@@ -24,10 +24,18 @@ async function createAdminUser() {
       return;
     }
 
-    // Create admin user
+    // Create admin user — password MUST come from env (never hardcode)
+    const adminPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+    if (!adminPassword || adminPassword.length < 12) {
+      console.error(
+        "❌ Set ADMIN_BOOTSTRAP_PASSWORD (min 12 chars) in the environment before running this script."
+      );
+      process.exit(1);
+    }
+
     const adminUser = new User({
-      email: "admin@ojest.com",
-      password: "admin123456",
+      email: process.env.ADMIN_BOOTSTRAP_EMAIL || "admin@ojest.com",
+      password: adminPassword,
       firstName: "Admin",
       lastName: "User",
       role: "admin",

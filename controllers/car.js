@@ -348,8 +348,10 @@ exports.addCar = async (req, res) => {
       priceNetto: parseFloat(fi.priceNetto) || 0,
     };
 
-    // Normalize isFeatured from multipart (string) or json
-    const isFeaturedBool = String(isFeatured).toLowerCase() === "true";
+    // Normalize isFeatured — only admins may feature listings
+    const isFeaturedBool =
+      req.user?.role === "admin" &&
+      String(isFeatured).toLowerCase() === "true";
 
     const car = new Car({
       createdBy: userId,
@@ -605,8 +607,10 @@ exports.updateCar = async (req, res) => {
       }
       updateData.warranties = parsedWarranties;
     }
-    if (typeof isFeatured !== 'undefined') {
-      updateData.isFeatured = String(isFeatured).toLowerCase() === 'true';
+    if (typeof isFeatured !== "undefined") {
+      if (req.user?.role === "admin") {
+        updateData.isFeatured = String(isFeatured).toLowerCase() === "true";
+      }
     }
     if (financialInfo) {
       // Process financialInfo to handle possible comma-separated strings
@@ -1194,11 +1198,14 @@ exports.getAllCarsForAdmin = async (req, res) => {
     if (req.query.condition)
       matchFilter["carCondition.overall"] = req.query.condition;
     if (req.query.search) {
+      const safeSearch = String(req.query.search)
+        .slice(0, 100)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       matchFilter.$or = [
-        { title: { $regex: req.query.search, $options: "i" } },
-        { make: { $regex: req.query.search, $options: "i" } },
-        { model: { $regex: req.query.search, $options: "i" } },
-        { vin: { $regex: req.query.search, $options: "i" } },
+        { title: { $regex: safeSearch, $options: "i" } },
+        { make: { $regex: safeSearch, $options: "i" } },
+        { model: { $regex: safeSearch, $options: "i" } },
+        { vin: { $regex: safeSearch, $options: "i" } },
       ];
     }
 

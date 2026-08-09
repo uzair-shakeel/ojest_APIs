@@ -4,7 +4,29 @@ const cloudinary = require("../config/connect").cloudinary;
 const streamifier = require("streamifier");
 
 const storage = multer.memoryStorage();
-const upload = multer({ storage });
+const ALLOWED_MIME = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+]);
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+    files: 20,
+  },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_MIME.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type. Only images and PDF are allowed."));
+    }
+  },
+});
 
 const uploadToCloudinary = async (req, res, next) => {
   // Handle the case where no files were uploaded at all

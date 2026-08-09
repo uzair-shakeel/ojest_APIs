@@ -1,7 +1,6 @@
 // backend/routes/user.js
 const express = require("express");
-const { User } = require("../models");
-const { auth, getAuth } = require("../middlewares/auth");
+const { auth, admin, getAuth } = require("../middlewares/auth");
 const router = express.Router();
 const userController = require("../controllers/user");
 const {
@@ -15,46 +14,35 @@ router.use((req, res, next) => {
   next();
 });
 
-// @Public Routes (no authentication required)
-// Get public user information (for car listings, etc.)
+// @Public Routes
 router.get("/public/:id", userController.getPublicUserInfo);
 
-// @Protected Routes
-// Get user profile by _id (requires authentication)
-router.get("/:id", auth, userController.getUserById);
-
-// @Protected Routes (requires authentication)
-// Get all users (accessible only by admin)
-router.get("/", userController.getAllUsers);
-
-// @Admin Routes - NO AUTH REQUIRED FOR ADMIN PANEL
-// Get user statistics for admin dashboard
-router.get("/admin/stats", userController.getUserStats);
-// Get all users for admin with pagination and filtering
-router.get("/admin/all", userController.getAllUsersForAdmin);
-// Toggle user block status
+// @Admin Routes — MUST be before /:id so "admin" is not captured as an id
+router.get("/admin/stats", auth, admin, userController.getUserStats);
+router.get("/admin/all", auth, admin, userController.getAllUsersForAdmin);
+router.get("/admin/approval-stats", auth, admin, userController.getUserApprovalStats);
 router.patch(
   "/admin/:targetUserId/toggle-block",
+  auth,
+  admin,
   userController.toggleUserBlock
 );
-// Change user role
-router.patch("/admin/:targetUserId/role", userController.changeUserRole);
-// Delete user (admin only)
-router.delete("/admin/:targetUserId", userController.deleteUser);
-// Approve user registration
-router.patch("/admin/:targetUserId/approve", userController.approveUser);
-// Reject user registration
-router.patch("/admin/:targetUserId/reject", userController.rejectUser);
-// Get user approval statistics
-router.get("/admin/approval-stats", userController.getUserApprovalStats);
+router.patch("/admin/:targetUserId/role", auth, admin, userController.changeUserRole);
+router.delete("/admin/:targetUserId", auth, admin, userController.deleteUser);
+router.patch("/admin/:targetUserId/approve", auth, admin, userController.approveUser);
+router.patch("/admin/:targetUserId/reject", auth, admin, userController.rejectUser);
 
-// SIMPLE APPROVAL UPDATE - NO AUTH REQUIRED (for testing)
-router.patch(
-  "/:userId/approval-status",
-  userController.updateUserApprovalStatus
-);
+// Discovery (specific paths before /:id)
+router.post("/like/:carId", auth, userController.likeCar);
+router.post("/pass/:carId", auth, userController.passCar);
+router.get("/wishlist/all", auth, userController.getLikedCars);
+router.get("/discovery/interacted", auth, userController.getInteractedCars);
+router.post("/discovery/reset", auth, userController.resetInteractions);
 
-// Update user profile
+// @Protected Routes
+router.get("/", auth, admin, userController.getAllUsers);
+router.get("/:id", auth, userController.getUserById);
+
 router.put(
   "/profile",
   auth,
@@ -62,7 +50,6 @@ router.put(
   uploadToCloudinary,
   userController.updateProfile
 );
-// after sign in page
 router.put(
   "/profile/custom",
   auth,
@@ -70,17 +57,9 @@ router.put(
   uploadToCloudinary,
   userController.updateProfileCustom
 );
-// Update seller type for a user
 router.patch("/type/:id", auth, userController.updateSellerType);
-// Delete user account
 router.delete("/account", auth, userController.deleteAccount);
 
-// --- Discovery Interactions ---
-router.post("/like/:carId", auth, userController.likeCar);
-router.post("/pass/:carId", auth, userController.passCar);
-router.get("/wishlist/all", auth, userController.getLikedCars);
-router.get("/discovery/interacted", auth, userController.getInteractedCars);
-router.post("/discovery/reset", auth, userController.resetInteractions);
+// NOTE: unauthenticated /:userId/approval-status endpoint was removed (privilege escalation)
 
-// Export routes
 module.exports = router;

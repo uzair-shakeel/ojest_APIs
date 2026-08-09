@@ -19,20 +19,24 @@ router.get("/test", (req, res) => {
 
 // Generate JWT token
 const generateToken = (userId) => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is not configured");
+  }
   return jwt.sign(
     {
       userId,
-      sessionId: Date.now().toString(),
+      sessionId: crypto.randomBytes(16).toString("hex"),
     },
-    process.env.JWT_SECRET || "your-secret-key-development",
-    { expiresIn: "100y" }
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
   );
 };
 
-
-// For development/testing - show OTP in console and alert
+// Development-only OTP console hint (never returned to clients)
 const logOTP = (contact, otp, type = "phone") => {
-  console.log(`OTP for ${type} ${contact}: ${otp}`);
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[dev] OTP generated for ${type}`);
+  }
   return otp;
 };
 
@@ -40,10 +44,10 @@ router.post("/signup", async (req, res) => {
   try {
     const { email, phoneNumber, password, firstName, lastName, termsAccepted, termsVersion } = req.body;
 
-    console.log("Input:", {
-      email,
-      phoneNumber,
-      password,
+    console.log("Signup attempt:", {
+      email: email ? "[provided]" : null,
+      phoneNumber: phoneNumber ? "[provided]" : null,
+      hasPassword: !!password,
       firstName,
       lastName,
     });
@@ -57,10 +61,10 @@ router.post("/signup", async (req, res) => {
     if (email && typeof email !== "string") {
       return res.status(400).json({ message: "Invalid email format" });
     }
-    if (!password || password.length < 6) {
+    if (!password || password.length < 8) {
       return res
         .status(400)
-        .json({ message: "Password must be at least 6 characters" });
+        .json({ message: "Password must be at least 8 characters" });
     }
 
     // Require Terms & Conditions acceptance
@@ -125,30 +129,22 @@ router.post("/signup", async (req, res) => {
     // Generate OTP (save only after OTP delivery succeeds)
     const otp = user.generateOTP();
 
-    // Send OTP
+    // Send OTP — never return OTP value to the client
     try {
       if (phoneNumber) {
-        if (process.env.NODE_ENV === "development") {
-          const loggedOTP = logOTP(phoneNumber, otp, "phone");
-          await user.save();
-          return res.status(201).json({
-            message: "User created successfully. OTP sent for verification.",
-            userId: user._id,
-            requiresOTP: true,
-            otp: loggedOTP, // Remove this in production
-            contactType: "phone",
-          });
-        } else {
+        logOTP(phoneNumber, otp, "phone");
+        if (process.env.NODE_ENV !== "development") {
           await sendOTP(phoneNumber, otp, "phone");
-          await user.save();
-          return res.status(201).json({
-            message: "User created successfully. OTP sent for verification.",
-            userId: user._id,
-            requiresOTP: true,
-            contactType: "phone",
-          });
         }
+        await user.save();
+        return res.status(201).json({
+          message: "User created successfully. OTP sent for verification.",
+          userId: user._id,
+          requiresOTP: true,
+          contactType: "phone",
+        });
       } else if (email) {
+        logOTP(email, otp, "email");
         await sendOTP(email, otp, "email");
         await user.save();
         return res.status(201).json({
@@ -247,39 +243,21 @@ router.post("/resend-otp", async (req, res) => {
     // Send OTP
     try {
       if (user.phoneNumber) {
-        // For development, log OTP and show in alert
-        if (process.env.NODE_ENV === "development") {
-          const loggedOTP = logOTP(user.phoneNumber, otp, "phone");
-          res.json({
-            message: "OTP resent successfully",
-            otp: loggedOTP, // Remove this in production
-            contactType: "phone",
-          });
-        } else {
-          // For production, send actual SMS
+        logOTP(user.phoneNumber, otp, "phone");
+        if (process.env.NODE_ENV !== "development") {
           await sendOTP(user.phoneNumber, otp, "phone");
-          res.json({
-            message: "OTP resent successfully",
-            contactType: "phone",
-          });
         }
+        res.json({
+          message: "OTP resent successfully",
+          contactType: "phone",
+        });
       } else if (user.email) {
-        // For development, log OTP and show in alert
-        if (process.env.NODE_ENV === "development") {
-          const loggedOTP = logOTP(user.email, otp, "email");
-          res.json({
-            message: "OTP resent successfully",
-            otp: loggedOTP, // Remove this in production
-            contactType: "email",
-          });
-        } else {
-          // For production, send actual email
-          await sendOTP(user.email, otp, "email");
-          res.json({
-            message: "OTP resent successfully",
-            contactType: "email",
-          });
-        }
+        logOTP(user.email, otp, "email");
+        await sendOTP(user.email, otp, "email");
+        res.json({
+          message: "OTP resent successfully",
+          contactType: "email",
+        });
       }
     } catch (error) {
       console.error("OTP resend error:", error);

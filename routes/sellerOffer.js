@@ -1,5 +1,5 @@
 const express = require("express");
-const { auth } = require("../middlewares/auth");
+const { auth, admin } = require("../middlewares/auth");
 const router = express.Router();
 const sellerOfferController = require("../controllers/sellerOffer");
 const {
@@ -7,18 +7,16 @@ const {
   uploadToCloudinary,
 } = require("../middlewares/uploadMiddleware");
 
-// @Admin Routes - NO AUTH REQUIRED FOR ADMIN PANEL
-// Get seller offer statistics for admin dashboard
-router.get("/admin/stats", sellerOfferController.getSellerOfferStats);
-// Get all seller offers for admin with pagination and filtering
-router.get("/admin/all", sellerOfferController.getAllSellerOffersForAdmin);
-// Update seller offer status (admin)
+// @Admin Routes
+router.get("/admin/stats", auth, admin, sellerOfferController.getSellerOfferStats);
+router.get("/admin/all", auth, admin, sellerOfferController.getAllSellerOffersForAdmin);
 router.patch(
   "/admin/:offerId/status",
+  auth,
+  admin,
   sellerOfferController.updateSellerOfferStatusAdmin
 );
-// Delete seller offer (admin only)
-router.delete("/admin/:offerId", sellerOfferController.deleteSellerOfferAdmin);
+router.delete("/admin/:offerId", auth, admin, sellerOfferController.deleteSellerOfferAdmin);
 
 // Create a new seller offer
 router.post(
